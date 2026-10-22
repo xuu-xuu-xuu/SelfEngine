@@ -1,0 +1,16 @@
+﻿# Generated build output
+/out/
+/build/
+/Build/
+
+# Visual Studio local state
+.vs/
+*.user
+*.suo
+
+# C# build output
+**/bin/
+**/obj/
+
+# Personal CMake settings
+CMakeUserPresets.json
