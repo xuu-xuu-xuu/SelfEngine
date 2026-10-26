@@ -6,11 +6,16 @@
 
 当前仓库包含两个控制台验证程序：
 
-- `EngineSandbox`：使用 CMake、Ninja 和 MSVC 构建的最小 C++ 程序。
+- `EngineSandbox`：使用 CMake、Ninja 和 MSVC 构建的 C++ 验证程序，当前用于 T02 的所有权、日志、错误处理与 COM 练习。
 - `ManagedSandbox`：面向 .NET 10 和 Windows x64 的最小 C# 程序。
 
-两个程序均已在当前开发机上通过 Debug、Release 构建与运行检查，
+T01 基线中的两个程序均已在当前开发机上通过 Debug、Release 构建与运行检查，
 并通过全新输出与中间目录的重新构建验证。
+
+截至 2026-10-26，T02 的 RAII、移动与借用、日志等级、文件读取结果枚举、
+断言、HRESULT 诊断、COM 引用与异常清理练习已通过相应运行和理解检查。
+`RunComPtrExample()` 已从主流程提取，当前正常路径在 Debug 下退出码为 0。
+本阶段新增代码尚未完成 Release 和全新目录的复验；异常在模块/C ABI 边界的转换仍待学习，T02 尚未完成。
 
 渲染和 C++/C# 互调仍处于规划阶段，尚未实现。
 
@@ -54,6 +59,8 @@ Release 构建和全新目录验证步骤见[开发环境与构建说明](Docs/E
 ## 目录与文件
 
 - `Source/Sandbox/`：C++ 控制台验证程序。
+- `Source/Core/`：最小日志设施。
+- `Source/Platform/Windows/`：Windows HRESULT 检查与日志诊断。
 - `Source/ManagedSandbox/`：C# 控制台验证程序。
 - `Docs/`：开发文档。
 - `CMakeLists.txt`：原生程序的构建目标和编译要求。

@@ -87,7 +87,10 @@ cmake --build --preset windows-x64-release
 $LASTEXITCODE
 ```
 
-两种配置均应输出“自研引擎第一次构建成功”，退出码为 0。
+T01 基线中的两种配置均输出“自研引擎第一次构建成功”，退出码为 0。
+当前 T02 验证程序的正常路径会输出所有权、COM 与文件读取练习日志，最后输出
+“[Info] 离开作用域之后”，退出码为 0；必须从仓库根目录运行以读取 README。
+T02 新增代码目前已有 Debug 验证证据，尚未完成本阶段的 Release 复验。
 
 ## 6. C# 构建与运行
 
@@ -189,3 +192,41 @@ $LASTEXITCODE
 本记录覆盖当前开发机上的验证。
 全新目录验证仍可使用已安装的工具链和 NuGet 全局包缓存，
 不代表已经完成另一台电脑或 Windows 10/11 双系统验证。
+
+## 9. Visual Studio 小三角启动与工作目录
+
+配置与验证日期：2026-10-25。
+
+在 Visual Studio 中打开仓库根目录，选择 `windows-x64-debug` 配置，
+启动项选择 `EngineSandbox - 项目根目录`。保存源码后点击小三角或按 F5，
+由 Visual Studio 按 CMake 目标检查构建并启动调试。
+
+本机 `.vs/launch.vs.json` 使用以下配置，文件保存为 UTF-8：
+
+```json
+{
+  "version": "0.2.1",
+  "defaults": {},
+  "configurations": [
+    {
+      "type": "default",
+      "project": "CMakeLists.txt",
+      "projectTarget": "EngineSandbox.exe",
+      "name": "EngineSandbox - 项目根目录",
+      "currentDir": "${workspaceRoot}"
+    }
+  ]
+}
+```
+
+- `project` 与 `projectTarget` 关联实际 CMake 构建目标，避免只启动已有的 exe 而遗漏构建。
+- `currentDir` 指定工作区根目录；相对路径 `README.md` 因此指向仓库中的文件。
+- `.vs/` 已由现有规则忽略，不提交本机启动配置；此处保留配置以便恢复。
+- Build Insights 用于收集构建性能数据，不是普通构建或运行所必需的步骤。
+  本次没有修改它的权限或系统跟踪设置，也没有启用管理员模式。
+
+验证结果：备份并移除当前 Debug 的一个生成目标文件后，点击小三角，
+Visual Studio 自动重新生成该目标文件并启动程序，调试输出确认退出码为 0。
+另从仓库根目录运行生成的 exe，确认读取 README 成功，编号 1、2、3 的对象各析构一次，
+执行到“离开作用域之后”，退出码为 0。当前模拟失败开关为 false。
+此次仅验证 Debug 启动配置，未重新验收 Release，也不表示整个 T02 已完成。
