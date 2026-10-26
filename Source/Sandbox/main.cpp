@@ -111,6 +111,33 @@ bool RunComPtrExample()
 	return true;
 }
 
+extern "C" int Engine_RunBoundaryExample(int simulateFailure) noexcept // 使用 C语言的链接方式 且 不允许异常逃出
+{
+	try
+	{
+		LifetimeProbe probe(4);
+
+		if (simulateFailure == 1)
+		{
+			throw std::runtime_error("模拟接口内部异常");
+		}
+		else if (simulateFailure == 2)
+		{
+			throw 42;
+		}
+
+		return 0;
+	}
+	catch(const std::exception&)
+	{
+		return 1;
+	}
+	catch (...) // 匹配任意类型的 C++ 异常
+	{
+		return 2;
+	}
+}
+
 int main()
 {
 	static_assert(sizeof(void*) == 8, "自研引擎需要64位编译器"); // 检查当前构建 指针大小是否为8字节
@@ -173,11 +200,12 @@ int main()
 
 		std::cout << "文件第一行:" << firstLine << '\n';
 
-		const bool simulateException = false;
-
-		if (simulateException)
+		const int boundaryResult = Engine_RunBoundaryExample(0);
+		std::cout << "C 接口返回码:" << boundaryResult << "\n";
+		if (boundaryResult != 0)
 		{
-			throw std::runtime_error("模拟初始化异常");
+			Log(LogLevel::Error, "C 接口报告失败，提前退出");
+			return 1;
 		}
 	}
 	catch (const std::exception &error)
