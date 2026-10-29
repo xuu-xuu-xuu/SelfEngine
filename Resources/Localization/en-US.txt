@@ -1,0 +1,4 @@
+Window.MessageLoopStarted=Window shown; starting message loop
+Window.MessageLoopEnded=Message loop ended
+Timer.InitializeFailed=Failed to initialize frame timer
+Timer.UpdateFailed=Failed to update frame timer

@@ -1,0 +1,4 @@
+Window.MessageLoopStarted=窗口已显示，开始消息循环
+Window.MessageLoopEnded=消息循环已结束
+Timer.InitializeFailed=初始化帧计时器失败
+Timer.UpdateFailed=更新帧计时器失败

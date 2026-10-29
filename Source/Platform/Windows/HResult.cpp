@@ -2,6 +2,7 @@
 #include "Core/Log.h"
 #include<sstream>
 
+// 用 FAILED 判断失败，不能把 HRESULT 直接当作 bool。
 bool CheckHResult(HRESULT hr, const std::string& operation)
 {
 	if (FAILED(hr))
