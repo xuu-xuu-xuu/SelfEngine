@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><AssemblyName>SelfEngine.ProjectScripts</AssemblyName></PropertyGroup>
+  <ItemGroup><ProjectReference Include="$(SelfEngineRepositoryRoot)Source/FunctionLayer/Scripting/Managed/Engine.Managed.csproj" /></ItemGroup>
+</Project>

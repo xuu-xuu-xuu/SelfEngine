@@ -1,0 +1,36 @@
+{
+  "Version": 1,
+  "Scripts": [
+    {
+      "Type": "sample.physics_playground",
+      "Entity": "1",
+      "Enabled": true,
+      "Fields": {
+        "ViewEntity": {
+          "Kind": "entity",
+          "Value": "2"
+        },
+        "Floor": {
+          "Kind": "entity",
+          "Value": "3"
+        },
+        "Crate": {
+          "Kind": "entity",
+          "Value": "4"
+        },
+        "LeftWall": {
+          "Kind": "entity",
+          "Value": "5"
+        },
+        "RightWall": {
+          "Kind": "entity",
+          "Value": "6"
+        },
+        "BackWall": {
+          "Kind": "entity",
+          "Value": "7"
+        }
+      }
+    }
+  ]
+}

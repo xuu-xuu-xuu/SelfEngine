@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "nodes": [
+    {"id":1,"parent":0,"kind":0,"text":"","image":"","value":0,"min":0,"max":1,"visible":true,"enabled":true,"opacity":1,"scroll":0,"style":[0,0,0,0,0,0,16,16,160,80,4,4],"layout":2,"clip":false},
+    {"id":2,"parent":1,"kind":2,"text":"","image":"22222222222222222222222222222222","value":0,"min":0,"max":1,"visible":true,"enabled":true,"opacity":1,"scroll":0,"style":[0,0,0,0,0,0,0,0,64,64,0,0],"layout":0,"clip":false}
+  ]
+}

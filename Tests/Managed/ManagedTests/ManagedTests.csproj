@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>SelfEngine.ManagedTests</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup><ProjectReference Include="$(SelfEngineRepositoryRoot)Source/FunctionLayer/Scripting/Managed/Engine.Managed.csproj" /></ItemGroup>
+  <ItemGroup><ProjectReference Include="$(SelfEngineRepositoryRoot)Samples/Managed/ProjectScripts/ProjectScripts.csproj" ReferenceOutputAssembly="false" /></ItemGroup>
+  <Target Name="CopyProjectScripts" AfterTargets="Build">
+    <ItemGroup><SampleScript Include="$(SelfEngineRepositoryRoot)out\managed\ProjectScripts\$(Configuration)\net10.0\SelfEngine.ProjectScripts.*" /></ItemGroup>
+    <Copy SourceFiles="@(SampleScript)" DestinationFolder="$(TargetDir)ProjectScripts" />
+    <ItemGroup><AssetSample Include="$(SelfEngineRepositoryRoot)Resources\Templates\EmptyGame\Content\Models\*" /></ItemGroup>
+    <Copy SourceFiles="@(AssetSample)" DestinationFolder="$(TargetDir)AssetSamples" />
+    <ItemGroup><PhysicsSample Include="$(SelfEngineRepositoryRoot)Resources\Samples\Scenes\PhysicsPlayground.scene.json;$(SelfEngineRepositoryRoot)Resources\Samples\Scripts\PhysicsPlayground.bindings.json" /></ItemGroup>
+    <Copy SourceFiles="@(PhysicsSample)" DestinationFolder="$(TargetDir)PhysicsSample" />
+  </Target>
+</Project>

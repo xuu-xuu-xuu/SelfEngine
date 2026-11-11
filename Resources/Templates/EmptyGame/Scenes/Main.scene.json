@@ -1,0 +1,47 @@
+{
+  "format": "SelfEngine.Scene",
+  "version": 2,
+  "retiredIds": [],
+  "entities": [
+    {
+      "id": "1",
+      "name": "Main Camera",
+      "enabled": true,
+      "parent": null,
+      "components": [
+        {"type": "1", "version": 1, "enabled": true, "properties": {"position": [0, 1.6, 4.5], "rotation": [-0.0749297, 0, 0, 0.997189], "scale": [1, 1, 1]}},
+        {"type": "2", "version": 1, "enabled": true, "properties": {"fov": 1.0471976, "near": 0.1, "far": 1000, "primary": true}}
+      ]
+    },
+    {
+      "id": "2",
+      "name": "Directional Light",
+      "enabled": true,
+      "parent": null,
+      "components": [
+        {"type": "1", "version": 1, "enabled": true, "properties": {"position": [0, 0, 0], "rotation": [-0.7676829, 0.4386759, 0, 0.4671472], "scale": [1, 1, 1]}},
+        {"type": "4", "version": 1, "enabled": true, "properties": {"color": [1, 0.96, 0.9], "intensity": 1.4, "type": false, "range": 10}}
+      ]
+    },
+    {
+      "id": "3",
+      "name": "Ground",
+      "enabled": true,
+      "parent": null,
+      "components": [
+        {"type": "1", "version": 1, "enabled": true, "properties": {"position": [0, -0.5, 0], "rotation": [0, 0, 0, 1], "scale": [10, 1, 10]}},
+        {"type": "3", "version": 1, "enabled": true, "properties": {"asset": "00000000000000000000000000000001", "materials": [], "castsShadow": false, "receivesShadow": true}}
+      ]
+    },
+    {
+      "id": "4",
+      "name": "Cube",
+      "enabled": true,
+      "parent": null,
+      "components": [
+        {"type": "1", "version": 1, "enabled": true, "properties": {"position": [0, 0.5, 0], "rotation": [0, 0, 0, 1], "scale": [1, 1, 1]}},
+        {"type": "3", "version": 1, "enabled": true, "properties": {"asset": "00000000000000000000000000000001", "materials": [], "castsShadow": true, "receivesShadow": true}}
+      ]
+    }
+  ]
+}

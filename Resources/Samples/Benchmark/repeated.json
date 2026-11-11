@@ -1,0 +1,1 @@
+{"schema":1,"scene":"repeated","object_count":1000,"seed":424242,"size":[1280,720],"warmup_seconds":5,"sample_seconds":60,"camera_path":{"period_seconds":60,"radius_multiplier":2.6,"height_multiplier":0.6}}

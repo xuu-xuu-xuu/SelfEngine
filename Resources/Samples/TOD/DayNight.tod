@@ -1,0 +1,93 @@
+{
+  "format": "SelfEngine.TODProfile",
+  "version": 1,
+  "dayLengthSeconds": 120,
+  "initialTime": 0.25,
+  "rate": 1,
+  "sunrise": 0.25,
+  "sunset": 0.75,
+  "azimuthRadians": 0.5,
+  "maximumElevationRadians": 1.2,
+  "keys": [
+    {
+      "time": 0,
+      "sunColor": [
+        0.15,
+        0.2,
+        0.4
+      ],
+      "skyColor": [
+        0.01,
+        0.015,
+        0.04
+      ],
+      "sunIntensity": 0.05,
+      "fogColor": [
+        0.1,
+        0.15,
+        0.25
+      ],
+      "fogDensity": 0.015
+    },
+    {
+      "time": 0.25,
+      "sunColor": [
+        1,
+        0.45,
+        0.2
+      ],
+      "skyColor": [
+        0.25,
+        0.12,
+        0.16
+      ],
+      "sunIntensity": 1,
+      "fogColor": [
+        0.5,
+        0.3,
+        0.25
+      ],
+      "fogDensity": 0.008
+    },
+    {
+      "time": 0.5,
+      "sunColor": [
+        1,
+        0.95,
+        0.85
+      ],
+      "skyColor": [
+        0.2,
+        0.45,
+        0.8
+      ],
+      "sunIntensity": 4,
+      "fogColor": [
+        0.5,
+        0.6,
+        0.7
+      ],
+      "fogDensity": 0.002
+    },
+    {
+      "time": 0.75,
+      "sunColor": [
+        1,
+        0.3,
+        0.1
+      ],
+      "skyColor": [
+        0.2,
+        0.07,
+        0.12
+      ],
+      "sunIntensity": 0.5,
+      "fogColor": [
+        0.4,
+        0.2,
+        0.2
+      ],
+      "fogDensity": 0.01
+    }
+  ]
+}

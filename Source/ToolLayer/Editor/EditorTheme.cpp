@@ -1,0 +1,84 @@
+#include "EditorTheme.h"
+
+namespace se
+{
+namespace
+{
+ImVec4 Rgba(int r,int g,int b,int a=255)
+{return {r/255.0f,g/255.0f,b/255.0f,a/255.0f};}
+}
+void ApplyEditorTheme(ImGuiStyle& style)
+{
+    ImGui::StyleColorsDark(&style);
+    style.WindowRounding=0;
+    style.ChildRounding=0;
+    style.FrameRounding=0;
+    style.PopupRounding=0;
+    style.ScrollbarRounding=0;
+    style.GrabRounding=0;
+    style.TabRounding=0;
+    style.WindowBorderSize=1;
+    style.ChildBorderSize=1;
+    style.FrameBorderSize=1;
+    style.PopupBorderSize=1;
+    style.WindowPadding={6,6};
+    style.FramePadding={5,3};
+    style.ItemSpacing={6,4};
+    style.ItemInnerSpacing={4,4};
+    style.IndentSpacing=16;
+    style.ScrollbarSize=12;
+    style.GrabMinSize=10;
+    style.DockingSeparatorSize=2;
+    style.WindowTitleAlign={0.0f,0.5f};
+    style.FontSizeBase=16.0f;
+
+    style.Colors[ImGuiCol_Text]=Rgba(210,210,210);
+    style.Colors[ImGuiCol_TextDisabled]=Rgba(128,128,128);
+    style.Colors[ImGuiCol_WindowBg]=Rgba(56,56,56);
+    style.Colors[ImGuiCol_ChildBg]=Rgba(45,45,45);
+    style.Colors[ImGuiCol_PopupBg]=Rgba(42,42,42,245);
+    style.Colors[ImGuiCol_Border]=Rgba(35,35,35);
+    style.Colors[ImGuiCol_BorderShadow]=Rgba(0,0,0,0);
+    style.Colors[ImGuiCol_FrameBg]=Rgba(42,42,42);
+    style.Colors[ImGuiCol_FrameBgHovered]=Rgba(58,58,58);
+    style.Colors[ImGuiCol_FrameBgActive]=Rgba(66,66,66);
+    style.Colors[ImGuiCol_TitleBg]=Rgba(38,38,38);
+    style.Colors[ImGuiCol_TitleBgActive]=Rgba(43,43,43);
+    style.Colors[ImGuiCol_TitleBgCollapsed]=Rgba(38,38,38);
+    style.Colors[ImGuiCol_MenuBarBg]=Rgba(43,43,43);
+    style.Colors[ImGuiCol_ScrollbarBg]=Rgba(38,38,38);
+    style.Colors[ImGuiCol_ScrollbarGrab]=Rgba(78,78,78);
+    style.Colors[ImGuiCol_ScrollbarGrabHovered]=Rgba(92,92,92);
+    style.Colors[ImGuiCol_ScrollbarGrabActive]=Rgba(108,108,108);
+    style.Colors[ImGuiCol_CheckMark]=Rgba(74,144,217);
+    style.Colors[ImGuiCol_SliderGrab]=Rgba(74,144,217);
+    style.Colors[ImGuiCol_SliderGrabActive]=Rgba(90,160,230);
+    style.Colors[ImGuiCol_Button]=Rgba(58,58,58);
+    style.Colors[ImGuiCol_ButtonHovered]=Rgba(70,70,70);
+    style.Colors[ImGuiCol_ButtonActive]=Rgba(44,93,135);
+    style.Colors[ImGuiCol_Header]=Rgba(62,62,62);
+    style.Colors[ImGuiCol_HeaderHovered]=Rgba(72,72,72);
+    style.Colors[ImGuiCol_HeaderActive]=Rgba(44,93,135);
+    style.Colors[ImGuiCol_Separator]=Rgba(35,35,35);
+    style.Colors[ImGuiCol_SeparatorHovered]=Rgba(74,144,217);
+    style.Colors[ImGuiCol_SeparatorActive]=Rgba(74,144,217);
+    style.Colors[ImGuiCol_ResizeGrip]=Rgba(255,255,255,20);
+    style.Colors[ImGuiCol_ResizeGripHovered]=Rgba(74,144,217,150);
+    style.Colors[ImGuiCol_ResizeGripActive]=Rgba(74,144,217,210);
+    style.Colors[ImGuiCol_Tab]=Rgba(43,43,43);
+    style.Colors[ImGuiCol_TabHovered]=Rgba(62,62,62);
+    style.Colors[ImGuiCol_TabSelected]=Rgba(56,56,56);
+    style.Colors[ImGuiCol_TabSelectedOverline]=Rgba(74,144,217);
+    style.Colors[ImGuiCol_TabDimmed]=Rgba(38,38,38);
+    style.Colors[ImGuiCol_TabDimmedSelected]=Rgba(48,48,48);
+    style.Colors[ImGuiCol_TabDimmedSelectedOverline]=Rgba(74,144,217,140);
+    style.Colors[ImGuiCol_DockingPreview]=Rgba(74,144,217,180);
+    style.Colors[ImGuiCol_DockingEmptyBg]=Rgba(32,32,32);
+    style.Colors[ImGuiCol_PlotLines]=Rgba(180,180,180);
+    style.Colors[ImGuiCol_PlotLinesHovered]=Rgba(74,144,217);
+    style.Colors[ImGuiCol_PlotHistogram]=Rgba(74,144,217);
+    style.Colors[ImGuiCol_PlotHistogramHovered]=Rgba(100,170,240);
+    style.Colors[ImGuiCol_TextSelectedBg]=Rgba(44,93,135,180);
+    style.Colors[ImGuiCol_NavCursor]=Rgba(74,144,217);
+}
+}

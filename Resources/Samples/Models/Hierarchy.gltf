@@ -1,0 +1,143 @@
+{
+  "asset": {
+    "generator": "SelfEngine self-authored fixture",
+    "version": "2.0"
+  },
+  "scene": 0,
+  "scenes": [
+    {
+      "nodes": [
+        0
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "translation": [
+        1,
+        0,
+        0
+      ],
+      "children": [
+        1
+      ],
+      "name": "Parent"
+    },
+    {
+      "mesh": 0,
+      "name": "Triangle"
+    }
+  ],
+  "meshes": [
+    {
+      "primitives": [
+        {
+          "indices": 3,
+          "attributes": {
+            "NORMAL": 1,
+            "POSITION": 0,
+            "TEXCOORD_0": 2
+          },
+          "material": 0
+        }
+      ],
+      "name": "Triangle"
+    }
+  ],
+  "materials": [
+    {
+      "pbrMetallicRoughness": {
+        "roughnessFactor": 0.8,
+        "baseColorTexture": {
+          "index": 0
+        },
+        "baseColorFactor": [
+          1,
+          1,
+          1,
+          1
+        ],
+        "metallicFactor": 0
+      },
+      "name": "Checker"
+    }
+  ],
+  "textures": [
+    {
+      "source": 0
+    }
+  ],
+  "images": [
+    {
+      "uri": "checker.png"
+    }
+  ],
+  "buffers": [
+    {
+      "uri": "Hierarchy.bin",
+      "byteLength": 102
+    }
+  ],
+  "bufferViews": [
+    {
+      "byteLength": 36,
+      "byteOffset": 0,
+      "buffer": 0,
+      "target": 34962
+    },
+    {
+      "byteLength": 36,
+      "byteOffset": 36,
+      "buffer": 0,
+      "target": 34962
+    },
+    {
+      "byteLength": 24,
+      "byteOffset": 72,
+      "buffer": 0,
+      "target": 34962
+    },
+    {
+      "byteLength": 6,
+      "byteOffset": 96,
+      "buffer": 0,
+      "target": 34963
+    }
+  ],
+  "accessors": [
+    {
+      "min": [
+        0,
+        0,
+        0
+      ],
+      "componentType": 5126,
+      "max": [
+        1,
+        2,
+        0
+      ],
+      "bufferView": 0,
+      "type": "VEC3",
+      "count": 3
+    },
+    {
+      "bufferView": 1,
+      "count": 3,
+      "componentType": 5126,
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 2,
+      "count": 3,
+      "componentType": 5126,
+      "type": "VEC2"
+    },
+    {
+      "bufferView": 3,
+      "count": 3,
+      "componentType": 5123,
+      "type": "SCALAR"
+    }
+  ]
+}

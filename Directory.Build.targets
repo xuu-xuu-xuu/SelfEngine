@@ -1,0 +1,18 @@
+<Project>
+  <!-- 自包含发布与普通构建共用既有输出位置。普通构建不能沿用旧的 app-local host，
+       否则 apphost 会把输出目录误认为 .NET 安装根。仅处理两份可再生成的宿主文件，先备份。 -->
+  <Target Name="SelfEngineIsolateStaleRuntimeHost" AfterTargets="Build"
+          Condition="'$(SelfContained)' != 'true' and ('$(OutputType)' == 'Exe' or '$(OutputType)' == 'WinExe')">
+    <PropertyGroup>
+      <SelfEngineRuntimeHostBackup>$(SelfEngineRepositoryRoot)out\runtime-host-backup\$(MSBuildProjectName)\$(Configuration)\$(TargetFramework)\</SelfEngineRuntimeHostBackup>
+    </PropertyGroup>
+    <ItemGroup>
+      <_SelfEngineStaleRuntimeHost Include="$(TargetDir)hostfxr.dll" Condition="Exists('$(TargetDir)hostfxr.dll')" />
+      <_SelfEngineStaleRuntimeHost Include="$(TargetDir)hostpolicy.dll" Condition="Exists('$(TargetDir)hostpolicy.dll')" />
+    </ItemGroup>
+    <MakeDir Directories="$(SelfEngineRuntimeHostBackup)" Condition="'@(_SelfEngineStaleRuntimeHost)' != ''" />
+    <Copy SourceFiles="@(_SelfEngineStaleRuntimeHost)" DestinationFolder="$(SelfEngineRuntimeHostBackup)" SkipUnchangedFiles="true" Condition="'@(_SelfEngineStaleRuntimeHost)' != ''" />
+    <Delete Files="@(_SelfEngineStaleRuntimeHost)" Condition="'@(_SelfEngineStaleRuntimeHost)' != ''" />
+    <Message Text="Saved incompatible app-local runtime host files in $(SelfEngineRuntimeHostBackup)" Importance="High" Condition="'@(_SelfEngineStaleRuntimeHost)' != ''" />
+  </Target>
+</Project>

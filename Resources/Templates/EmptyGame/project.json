@@ -1,0 +1,22 @@
+{
+  "format": "SelfEngine.Project",
+  "version": 1,
+  "name": "EmptyGame",
+  "contentRoot": "Content",
+  "entryScene": "Scenes/Main.scene.json",
+  "scenes": ["Scenes/Main.scene.json"],
+  "ui": ["UI/Main.ui.json"],
+  "assets": [
+    {"id": "11111111111111111111111111111111", "type": "model"},
+    {"id": "22222222222222222222222222222222", "type": "image"},
+    {"id": "33333333333333333333333333333333", "type": "material"}
+  ],
+  "replay": {
+    "steps": 600,
+    "bodies": [
+      {"entity": "3", "halfExtents": [10, 0.5, 10], "mass": 0},
+      {"entity": "4", "halfExtents": [0.5, 0.5, 0.5], "mass": 1}
+    ],
+    "impulses": [{"step": 120, "entity": "4", "impulse": [2, 2, 0], "offset": [0, 0.2, 0]}]
+  }
+}

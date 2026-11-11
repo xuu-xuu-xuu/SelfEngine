@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>EmptyGame.Scripts</AssemblyName>
+  </PropertyGroup>
+  <Target Name="CheckEngineRoot" BeforeTargets="ResolveReferences" Condition="'$(SelfEngineRoot)' == ''">
+    <Error Text="Set SelfEngineRoot to the SelfEngine source directory." />
+  </Target>
+  <ItemGroup>
+    <ProjectReference Include="$(SelfEngineRoot)/Source/FunctionLayer/Scripting/Managed/Engine.Managed.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,10 @@
+{
+  "type": "SelfEngine.Material",
+  "version": 1,
+  "name": "Checker",
+  "baseColor": [1, 1, 1, 1],
+  "metallic": 0,
+  "roughness": 0.8,
+  "doubleSided": false,
+  "textures": {"baseColor": "22222222222222222222222222222222", "normal": "", "metallicRoughness": ""}
+}

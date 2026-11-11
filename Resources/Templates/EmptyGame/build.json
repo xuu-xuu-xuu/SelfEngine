@@ -1,0 +1,8 @@
+{
+  "format": "SelfEngine.Build",
+  "version": 1,
+  "scriptsProject": "Scripts/EmptyGame.Scripts.csproj",
+  "scriptType": "emptygame.spin",
+  "bindings": "Scripts/Main.bindings.json",
+  "entryUi": "UI/Main.ui.json"
+}

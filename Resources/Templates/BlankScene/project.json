@@ -1,0 +1,10 @@
+{
+  "format": "SelfEngine.Project",
+  "version": 1,
+  "name": "BlankScene",
+  "contentRoot": "Content",
+  "entryScene": "Scenes/Main.scene.json",
+  "scenes": ["Scenes/Main.scene.json"],
+  "ui": [],
+  "assets": []
+}

@@ -1,0 +1,6 @@
+{
+  "Version": 1,
+  "Scripts": [
+    {"Type":"emptygame.spin","Entity":"3","Enabled":true,"Fields":{"RadiansPerSecond":{"Kind":"f32","Value":1}}}
+  ]
+}

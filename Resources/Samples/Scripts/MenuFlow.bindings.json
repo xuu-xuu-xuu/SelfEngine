@@ -1,0 +1,8 @@
+{
+  "Version": 1,
+  "Scripts": [
+    {"Type":"sample.menu_world","Entity":"1","Enabled":true,"Fields":{"Floor":{"Kind":"entity","Value":"3"},"Target":{"Kind":"entity","Value":"4"}}},
+    {"Type":"sample.project_character","Entity":"1","Enabled":true,"Fields":{"ViewEntity":{"Kind":"entity","Value":"2"}}},
+    {"Type":"sample.menu_flow","Entity":"5","Enabled":true,"Fields":{"ViewEntity":{"Kind":"entity","Value":"2"}}}
+  ]
+}

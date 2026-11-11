@@ -1,4 +1,4 @@
-# Generated build output
+﻿# Generated build output
 /out/
 /build/
 /Build/
@@ -15,18 +15,23 @@
 # Personal CMake settings
 CMakeUserPresets.json
 
+# 可重建的项目派生资源缓存
+**/.cache/
+
+# Python 生成字节码
+**/__pycache__/
+*.py[cod]
+
 # 本地说明文档与验证资料
 *.md
 /Docs/
 /evidence/
+/logs/
 *.log
 
-# 其他可重建输出与缓存
+# 其他可重建构建目录与编译产物
 /build-*/
 /Build-*/
-**/.cache/
-**/__pycache__/
-*.py[cod]
 *.exe
 *.dll
 *.pdb

@@ -1,0 +1,11 @@
+{
+  "format": "SelfEngine.Scene",
+  "version": 1,
+  "entities": [
+    {"id":"1","name":"Player","enabled":true,"parent":null,"transform":{"position":[0,0.9,3],"rotation":[0,0,0,1],"scale":[1,1,1]},"components":{}},
+    {"id":"2","name":"Eye","enabled":true,"parent":null,"transform":{"position":[0,1.5,3],"rotation":[0,0,0,1],"scale":[1,1,1]},"components":{"camera":{"fov":1.0471976,"near":0.1,"far":100,"primary":true}}},
+    {"id":"3","name":"Floor","enabled":true,"parent":null,"transform":{"position":[0,-0.5,0],"rotation":[0,0,0,1],"scale":[40,1,40]},"components":{"mesh":{"asset":"00000000000000000000000000000001","materials":[]}}},
+    {"id":"4","name":"Crate","enabled":true,"parent":null,"transform":{"position":[0,1,0],"rotation":[0,0,0,1],"scale":[2,2,2]},"components":{"mesh":{"asset":"00000000000000000000000000000001","materials":[]}}},
+    {"id":"5","name":"Menu","enabled":true,"parent":null,"transform":{"position":[0,0,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"components":{}}
+  ]
+}
