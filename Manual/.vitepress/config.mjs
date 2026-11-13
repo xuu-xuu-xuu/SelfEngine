@@ -6,7 +6,31 @@ export default defineConfig({
   title: 'Flare 开发者文档',
   description: 'Flare 引擎的功能、类型与接口',
   appearance: 'force-dark',
+  // 两本中文手册按路径使用各自的侧栏和本地搜索索引。
+  locales: {
+    root: { label: '开发者文档' },
+    user: {
+      label: '使用者文档',
+      lang: 'zh-CN',
+      title: 'Flare 使用者文档',
+      description: '从创建第一个 Flare 项目到运行预览',
+      themeConfig: {
+        siteTitle: 'Flare 使用者文档',
+        sidebar: [
+          { text: '使用者文档', link: '/user/' },
+          { text: '第一次使用 Flare', items: [
+            { text: '新建项目', link: '/user/create-project' },
+            { text: '编辑器界面', link: '/user/editor-interface' },
+            { text: '导入 FBX', link: '/user/import-fbx' },
+            { text: '运行预览', link: '/user/run-preview' }
+          ] },
+          { text: '从源码启动编辑器', link: '/user/build-from-source' }
+        ]
+      }
+    }
+  },
   themeConfig: {
+    i18nRouting: false,
     siteTitle: 'Flare 开发者文档',
     nav: [{ text: '引擎源码', link: 'https://github.com/xuu-xuu-xuu/FlareEngine' }],
     sidebar: [
