@@ -44,10 +44,8 @@ CMakeUserPresets.json
 *.idb
 *.exp
 
-# GitHub 首页与公开文档入口
+# GitHub 首页与公开手册
 !/README.md
-!/开发者文档.md
-!/使用者文档.md
 
 # 开发者文档站的正文公开，编写约定与本机预览产物仅在本地保存。
 /开发者说明文档.md
@@ -75,13 +73,11 @@ CMakeUserPresets.json
 !/Scripts/Build-EditorPackage.ps1
 !/Scripts/Build-EditorScriptCandidate.ps1
 !/Scripts/Copy-RendererResources.ps1
-!/Scripts/DetectMsvcIncludes.cmake
 !/Scripts/EditorPackageRuntime.ps1
 !/Scripts/Export-Game.ps1
 !/Scripts/Export-Package.ps1
 !/Scripts/Generate-FlareBranding.ps1
 !/Scripts/Import-MsvcEnvironment.ps1
-!/Scripts/MsvcOutputEncoding.cpp
 !/Scripts/NativeProgram.ps1
 !/Scripts/ProjectBuildLease.ps1
 !/Scripts/Publish-Managed.ps1

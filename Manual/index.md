@@ -35,3 +35,5 @@
 [构建工具、预览与导出](tools/delivery.md) · [构建环境、资源复制与包内启动](tools/package.md)
 
 源码基线为 [Flare e7ca801](https://github.com/xuu-xuu-xuu/FlareEngine/tree/e7ca801292037b33172d094cc4a434682ac83c9c)。
+
+维护文档时，在仓库根目录依次运行 `npm.cmd --prefix Manual ci` 和 `npm.cmd --prefix Manual run dev`，打开终端显示的本地地址即可预览侧栏、搜索和源码链接。

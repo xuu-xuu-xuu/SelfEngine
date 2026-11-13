@@ -10,7 +10,7 @@ function Get-EngineSourceIdentity([string]$ProjectRoot){
     $candidates=& git -C $ProjectRoot -c core.quotepath=false ls-files --cached --others --exclude-standard
     if($LASTEXITCODE -ne 0){throw 'Cannot enumerate engine source inputs.'}
     foreach($relative in @($candidates | Sort-Object -Unique)){
-        if($relative -match '^(Source|Resources|Scripts|ThirdParty)/' -and $relative -notmatch '/(bin|obj|__pycache__|\.cache)/' -and [IO.Path]::GetExtension($relative) -notin @('.pyc','.pyo','.md')){
+        if($relative -match '^(Source|Resources|Scripts|ThirdParty|BuildConfig/CMake)/' -and $relative -notmatch '/(bin|obj|__pycache__|\.cache)/' -and [IO.Path]::GetExtension($relative) -notin @('.pyc','.pyo','.md')){
             $inputPaths.Add((Join-Path $ProjectRoot $relative))
         }
     }
