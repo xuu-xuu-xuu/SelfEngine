@@ -17,6 +17,7 @@ $ProjectRoot=[IO.Path]::GetFullPath($ProjectRoot).TrimEnd('\')
 $NativeDirectory=[IO.Path]::GetFullPath($NativeDirectory).TrimEnd('\')
 $OperationDirectory=[IO.Path]::GetFullPath($OperationDirectory).TrimEnd('\')
 $packageMode=Test-Path -LiteralPath (Join-Path $engineRoot 'editor-package.json') -PathType Leaf
+$nugetConfig=if($packageMode){Join-Path $engineRoot 'NuGet.Config'}else{Join-Path $engineRoot 'BuildConfig/NuGet.Config'}
 $sourceExtensions=@('.cs','.csproj','.props','.targets','.lock.json')
 $sourceFileNames=@('build.json','global.json','NuGet.Config')
 $sourceFiles=@();$sourceIdentity='';$engineIdentity='';$lease=$null;$candidate=$null;$failureKey='Preview.BuildFailed'
@@ -123,7 +124,7 @@ try {
         foreach($directory in @('Source/FunctionLayer/Scripting/Bootstrap','Source/FunctionLayer/Scripting/Managed')){
             $engineInputs+=@(Get-ChildItem -LiteralPath (Join-Path $engineRoot $directory) -File -Recurse | Where-Object {$_.Extension -in @('.cs','.csproj')} | Sort-Object FullName | ForEach-Object {[ordered]@{path=$_.FullName.Substring($engineRoot.Length+1).Replace('\','/');sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()}})
         }
-        foreach($name in @('Directory.Build.props','Directory.Build.targets','global.json','Scripts/Build-EditorScriptCandidate.ps1')){$engineInputs+=@([ordered]@{path=$name;sha256=(Get-FileHash -LiteralPath (Join-Path $engineRoot $name) -Algorithm SHA256).Hash.ToLowerInvariant()})}
+        foreach($name in @('BuildConfig/Directory.Build.props','BuildConfig/Directory.Build.targets','BuildConfig/NuGet.Config','Source/FunctionLayer/Scripting/Directory.Build.props','global.json','Scripts/Build-EditorScriptCandidate.ps1')){$engineInputs+=@([ordered]@{path=$name;sha256=(Get-FileHash -LiteralPath (Join-Path $engineRoot $name) -Algorithm SHA256).Hash.ToLowerInvariant()})}
     }
     $engineIdentity=HashText (ConvertTo-Json -InputObject $engineInputs -Depth 5 -Compress)
     $lastPath=Join-Path (Split-Path -Parent (Split-Path -Parent $OperationDirectory)) ('last-success-'+$Configuration.ToLowerInvariant()+'.json')
@@ -156,12 +157,12 @@ try {
         $props=Join-Path $OperationDirectory 'Candidate.Directory.Build.props'
         $escapedRoot=[Security.SecurityElement]::Escape($engineRoot)
         $escapedOutput=[Security.SecurityElement]::Escape((Join-Path $OperationDirectory 'managed'))
-        $text='<Project><Import Project="'+$escapedRoot+'\Directory.Build.props"/><PropertyGroup><BaseOutputPath>'+$escapedOutput+'\bin\$(MSBuildProjectName)\</BaseOutputPath><BaseIntermediateOutputPath>'+$escapedOutput+'\obj\$(MSBuildProjectName)\</BaseIntermediateOutputPath></PropertyGroup></Project>'
+        $text='<Project><Import Project="'+$escapedRoot+'\BuildConfig\Directory.Build.props"/><PropertyGroup><BaseOutputPath>'+$escapedOutput+'\bin\$(MSBuildProjectName)\</BaseOutputPath><BaseIntermediateOutputPath>'+$escapedOutput+'\obj\$(MSBuildProjectName)\</BaseIntermediateOutputPath></PropertyGroup></Project>'
         [IO.File]::WriteAllText($props,$text,$utf8)
         $bootstrap=Join-Path $engineRoot 'Source/FunctionLayer/Scripting/Bootstrap/Bootstrap.csproj'
         $properties=@(('-p:Configuration='+$Configuration),('-p:DirectoryBuildPropsPath='+$props),'-p:UseSharedCompilation=false','-nodeReuse:false')
         $failureKey='Preview.RestoreFailed'
-        Step 'restore_host' $dotnet (@('restore',$bootstrap,'--runtime','win-x64','-p:SelfContained=true','--configfile',(Join-Path $engineRoot 'NuGet.Config'),'--packages',(Join-Path $engineRoot 'out/nuget/packages'),'--nologo')+$properties)
+        Step 'restore_host' $dotnet (@('restore',$bootstrap,'--runtime','win-x64','-p:SelfContained=true','--configfile',$nugetConfig,'--packages',(Join-Path $engineRoot 'out/nuget/packages'),'--nologo')+$properties)
         $failureKey='Preview.BuildFailed'
         Step 'publish_host' $dotnet (@('publish',$bootstrap,'--runtime','win-x64','--self-contained','true','--output',$runtime,'-p:PublishSingleFile=false','-p:PublishTrimmed=false','--no-restore','--nologo')+$properties)
         Copy-Item -LiteralPath $native -Destination (Join-Path $runtime 'EngineNative.dll')
@@ -221,7 +222,7 @@ try {
         $assemblyName=(Get-Content -LiteralPath (Join-Path $OperationDirectory 'script_name.log') -Raw -Encoding UTF8).Trim()
         if(!$assemblyName -or $assemblyName.IndexOfAny([IO.Path]::GetInvalidFileNameChars()) -ge 0 -or $assemblyName -in @('.','..')){throw 'Preview.InvalidProject'}
         $failureKey='Preview.RestoreFailed'
-        Step 'restore_scripts' $dotnet (@('restore',$scriptProject,'--runtime','win-x64','--configfile',(Join-Path $engineRoot 'NuGet.Config'),'--packages',(Join-Path $ProjectRoot 'out/nuget/packages'),('-p:Configuration='+$Configuration),'-p:SelfContained=false','--nologo')+$properties)
+        Step 'restore_scripts' $dotnet (@('restore',$scriptProject,'--runtime','win-x64','--configfile',$nugetConfig,'--packages',(Join-Path $ProjectRoot 'out/nuget/packages'),('-p:Configuration='+$Configuration),'-p:SelfContained=false','--nologo')+$properties)
         $failureKey='Preview.BuildFailed'
         Step 'build_scripts' $dotnet (@('publish',$scriptProject,'--configuration',$Configuration,'--runtime','win-x64','--self-contained','false','--output',$scripts,'-p:GenerateDependencyFile=true','--no-restore','--nologo')+$properties)
     }

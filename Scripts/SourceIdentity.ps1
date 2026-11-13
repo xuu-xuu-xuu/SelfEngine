@@ -14,8 +14,12 @@ function Get-EngineSourceIdentity([string]$ProjectRoot){
             $inputPaths.Add((Join-Path $ProjectRoot $relative))
         }
     }
-    foreach($name in @('CMakeLists.txt','CMakePresets.json','Directory.Build.props','NuGet.Config')){$inputPaths.Add((Join-Path $ProjectRoot $name))}
-    $buildTargets=Join-Path $ProjectRoot 'Directory.Build.targets'
+    foreach($name in @('CMakeLists.txt','CMakePresets.json')){$inputPaths.Add((Join-Path $ProjectRoot $name))}
+    # 也允许对迁移前的冻结源树计算原有摘要。
+    $configRoot=Join-Path $ProjectRoot 'BuildConfig'
+    if(!(Test-Path -LiteralPath $configRoot -PathType Container)){$configRoot=$ProjectRoot}
+    foreach($name in @('Directory.Build.props','NuGet.Config')){$inputPaths.Add((Join-Path $configRoot $name))}
+    $buildTargets=Join-Path $configRoot 'Directory.Build.targets'
     if(Test-Path -LiteralPath $buildTargets){$inputPaths.Add($buildTargets)} # 兼容旧冻结版本中尚无此文件的源树。
     $sortedPaths=$inputPaths.ToArray();[Array]::Sort($sortedPaths,[StringComparer]::Ordinal)
     $sourceFiles=@($sortedPaths|ForEach-Object{

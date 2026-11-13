@@ -3,6 +3,7 @@ if([Console]::IsOutputRedirected){[Console]::OutputEncoding=[Text.UTF8Encoding]:
 $ErrorActionPreference='Stop'
 $workspace=(Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $packageMode=Test-Path -LiteralPath (Join-Path $workspace 'editor-package.json') -PathType Leaf
+$nugetConfig=if($packageMode){Join-Path $workspace 'NuGet.Config'}else{Join-Path $workspace 'BuildConfig/NuGet.Config'}
 if($packageMode -and $PSBoundParameters.ContainsKey('Project')){$Project=[IO.Path]::GetFullPath($Project)}
 Set-Location -LiteralPath $workspace
 # 用户 TEMP 可能被 ACL/安全软件拒绝；导出子进程统一使用工作区可写临时目录。
@@ -140,7 +141,7 @@ try {
         $assemblyName=(Get-Content -LiteralPath (Join-Path $case 'script_name.log') -Raw -Encoding UTF8).Trim()
         if(!$assemblyName -or $assemblyName.IndexOfAny([IO.Path]::GetInvalidFileNameChars()) -ge 0 -or $assemblyName -in @('.','..')){Fail 'Export.InvalidSettings' 'AssemblyName'}
         $nugetRoot=Join-Path $(if($packageMode){$projectRoot}else{$workspace}) 'out/nuget/packages'
-        Step 'restore_scripts' $dotnet (@('restore',$ScriptProject,'--runtime','win-x64','--configfile',(Join-Path $workspace 'NuGet.Config'),'--packages',$nugetRoot,'-p:Configuration=Release','-p:SelfContained=false','--nologo')+$scriptProperties)
+        Step 'restore_scripts' $dotnet (@('restore',$ScriptProject,'--runtime','win-x64','--configfile',$nugetConfig,'--packages',$nugetRoot,'-p:Configuration=Release','-p:SelfContained=false','--nologo')+$scriptProperties)
         Step 'publish_scripts' $dotnet (@('publish',$ScriptProject,'--configuration','Release','--runtime','win-x64','--self-contained','false','--output',$custom,'-p:PublishSingleFile=false','-p:PublishTrimmed=false','-p:GenerateDependencyFile=true','--no-restore','--nologo')+$scriptProperties)
         }
         $scriptAssembly='ProjectScripts/Custom/'+$assemblyName+'.dll'

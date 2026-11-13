@@ -1,6 +1,7 @@
 <Project>
   <PropertyGroup>
-    <SelfEngineRepositoryRoot>$(MSBuildThisFileDirectory)</SelfEngineRepositoryRoot>
+    <SelfEngineRepositoryRoot>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)..'))</SelfEngineRepositoryRoot>
+    <DirectoryBuildTargetsPath Condition="'$(DirectoryBuildTargetsPath)' == ''">$(MSBuildThisFileDirectory)Directory.Build.targets</DirectoryBuildTargetsPath>
     <RestoreConfigFile>$(MSBuildThisFileDirectory)NuGet.Config</RestoreConfigFile>
     <RestorePackagesPath>$(SelfEngineRepositoryRoot)out\nuget\packages</RestorePackagesPath>
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>

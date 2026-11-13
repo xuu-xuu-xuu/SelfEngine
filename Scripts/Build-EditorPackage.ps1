@@ -51,7 +51,8 @@ try {
     CopyTree (Join-Path $native 'Resources') (Join-Path $stage 'Resources')
     AddStep 'strip_derived_caches'
     # 模板里可能留有开发机构建出的派生缓存/中间目录；便携包不带缓存与临时产物。
-    $derived=@(Get-ChildItem -LiteralPath (Join-Path $stage 'Resources') -Directory -Recurse -Force | Where-Object {$_.Name -in @('.cache','bin','obj')} | Sort-Object {$_.FullName.Length} -Descending)
+    $templateOutput=Join-Path $stage 'Resources\Templates\EmptyGame\out'
+    $derived=@(Get-ChildItem -LiteralPath (Join-Path $stage 'Resources') -Directory -Recurse -Force | Where-Object {$_.Name -in @('.cache','bin','obj') -or $_.FullName -eq $templateOutput} | Sort-Object {$_.FullName.Length} -Descending)
     foreach($directory in $derived){
         $target=[IO.Path]::GetFullPath($directory.FullName)
         if(!$target.StartsWith([IO.Path]::GetFullPath($stage).TrimEnd('\')+'\',[StringComparison]::OrdinalIgnoreCase)){throw 'Export.PathOutsideRoot'}
@@ -67,7 +68,7 @@ try {
     foreach($script in @('Export-Game.ps1','Export-Package.ps1','Start-ExportedGame.ps1','NativeProgram.ps1','SourceIdentity.ps1','ProjectBuildLease.ps1','EditorPackageRuntime.ps1','Build-EditorScriptCandidate.ps1','Copy-RendererResources.ps1')){
         CopyFile (Join-Path $root ('Scripts/'+$script)) (Join-Path $stage ('Scripts/'+$script))
     }
-    CopyFile (Join-Path $root 'NuGet.Config') (Join-Path $stage 'NuGet.Config')
+    CopyFile (Join-Path $root 'BuildConfig/NuGet.Config') (Join-Path $stage 'NuGet.Config')
     if(Test-Path -LiteralPath (Join-Path $root 'Docs/ExportedGameReadme.md') -PathType Leaf){
         CopyFile (Join-Path $root 'Docs/ExportedGameReadme.md') (Join-Path $stage 'Docs/ExportedGameReadme.md')
     }
@@ -131,7 +132,7 @@ try {
     [IO.File]::WriteAllText((Join-Path $template 'README.md'),"# 空游戏模板`n`n从 Flare 引擎打开 project.json，编辑后在构建与导出面板生成游戏。`n未修改的示例行为可直接使用随包预编译版本；修改 Scripts 后需要 .NET 10 SDK。`n",[Text.UTF8Encoding]::new($false))
     $dotnet=(Get-Command dotnet.exe -ErrorAction Stop).Source
     $scriptProperties=Get-EnginePackageScriptProperties $stage (Join-Path $evidence 'template-obj')
-    RunStep 'restore_template_scripts' $dotnet (@('restore',$scriptProject,'--runtime','win-x64','--configfile',(Join-Path $root 'NuGet.Config'),'--packages',(Join-Path $root 'out/nuget/packages'),'-p:Configuration=Release','-p:SelfContained=false','--nologo')+$scriptProperties)
+    RunStep 'restore_template_scripts' $dotnet (@('restore',$scriptProject,'--runtime','win-x64','--configfile',(Join-Path $root 'BuildConfig/NuGet.Config'),'--packages',(Join-Path $root 'out/nuget/packages'),'-p:Configuration=Release','-p:SelfContained=false','--nologo')+$scriptProperties)
     $precompiled=Join-Path $stage 'SDK/Precompiled/EmptyGame'
     RunStep 'publish_template_scripts' $dotnet (@('publish',$scriptProject,'--configuration','Release','--runtime','win-x64','--self-contained','false','--output',(Join-Path $precompiled 'Files'),'-p:PublishSingleFile=false','-p:PublishTrimmed=false','-p:GenerateDependencyFile=true','--no-restore','--nologo')+$scriptProperties)
     foreach($required in @('EmptyGame.Scripts.dll','EmptyGame.Scripts.deps.json')){if(!(Test-Path -LiteralPath (Join-Path $precompiled ('Files/'+$required)))){throw ('Export.StepFailed '+$required)}}

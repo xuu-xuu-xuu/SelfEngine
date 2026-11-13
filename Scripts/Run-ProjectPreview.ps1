@@ -41,14 +41,14 @@ try {
     WriteReport
     $dotnet=(Get-Command dotnet.exe -ErrorAction Stop).Source
     $bootstrapProject=Join-Path $repository 'Source/FunctionLayer/Scripting/Bootstrap/Bootstrap.csproj'
-    $restoreArguments=@('restore',$bootstrapProject,'--configfile',(Join-Path $repository 'NuGet.Config'),'--packages',(Join-Path $repository 'out/nuget/packages'),('-p:Configuration='+$Configuration),'--nologo')
+    $restoreArguments=@('restore',$bootstrapProject,'--configfile',(Join-Path $repository 'BuildConfig/NuGet.Config'),'--packages',(Join-Path $repository 'out/nuget/packages'),('-p:Configuration='+$Configuration),'--nologo')
     if((Invoke-EngineProgram $dotnet $restoreArguments (Join-Path $case 'bootstrap-restore.log')) -ne 0){throw (Text 'Preview.RestoreFailed')}
     $report.phase='compile_bootstrap';WriteReport
     $compileArguments=@('build',$bootstrapProject,'--configuration',$Configuration,'--nologo','--no-restore')
     if((Invoke-EngineProgram $dotnet $compileArguments (Join-Path $case 'bootstrap-build.log')) -ne 0){throw (Text 'Preview.BuildFailed')}
     $report.phase='restore_project';WriteReport
     $scriptOutput=Join-Path $case 'Scripts'
-    $restoreArguments=@('restore',$project,'--configfile',(Join-Path $repository 'NuGet.Config'),'--packages',(Join-Path $repository 'out/nuget/packages'),('-p:Configuration='+$Configuration),('-p:SelfEngineRoot='+$repository),'--nologo')
+    $restoreArguments=@('restore',$project,'--configfile',(Join-Path $repository 'BuildConfig/NuGet.Config'),'--packages',(Join-Path $repository 'out/nuget/packages'),('-p:Configuration='+$Configuration),('-p:SelfEngineRoot='+$repository),'--nologo')
     if((Invoke-EngineProgram $dotnet $restoreArguments (Join-Path $case 'project-restore.log')) -ne 0){throw (Text 'Preview.RestoreFailed')}
     $report.phase='compile_project';WriteReport
     $compileArguments=@('build',$project,'--configuration',$Configuration,'--output',$scriptOutput,('-p:SelfEngineRoot='+$repository),'--nologo','--no-restore')

@@ -22,7 +22,7 @@ if($ManagedOutputRoot){
     New-Item -ItemType Directory -Path $managedRoot -Force | Out-Null
     $baseArgs=@("-p:SelfEngineManagedOutputRoot=$managedRoot/","-p:SelfEngineManagedIntermediateRoot=$managedRoot/obj/")
 }
-dotnet restore Source/FunctionLayer/Scripting/Bootstrap/Bootstrap.csproj --runtime win-x64 --configfile NuGet.Config --packages out/nuget/packages "-p:Configuration=$Configuration" "-p:SelfContained=$selfContained" @baseArgs --nologo
+dotnet restore Source/FunctionLayer/Scripting/Bootstrap/Bootstrap.csproj --runtime win-x64 --configfile BuildConfig/NuGet.Config --packages out/nuget/packages "-p:Configuration=$Configuration" "-p:SelfContained=$selfContained" @baseArgs --nologo
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 dotnet publish Source/FunctionLayer/Scripting/Bootstrap/Bootstrap.csproj --configuration $Configuration --runtime win-x64 --self-contained $selfContained --output $publishDirectory -p:PublishSingleFile=false -p:PublishTrimmed=false @baseArgs --no-restore --nologo
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
