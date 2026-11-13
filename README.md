@@ -4,10 +4,6 @@
 
 <p align="center">使用C++作为底层逻辑语言的自研游戏引擎</p>
 
-<p align="center">
-  <a href="https://xuu-xuu-xuu.github.io/FlareEngine/">开发者文档</a> · <a href="Manual/user/index.md">使用者文档</a>
-</p>
-
 ## 源码导览
 
 | 目录 | 内容 |
@@ -17,4 +13,4 @@
 | [BuildConfig](BuildConfig) | 原生目标和资源构建规则，以及 C# 与 NuGet 配置。 |
 | [Scripts](Scripts) | 编辑器启动、脚本预览、打包和游戏导出的 PowerShell 入口。 |
 | [ThirdParty](ThirdParty) | 随源码分发的第三方库及其许可证。 |
-| [Manual](Manual) | 开发者文档站源码和使用者文档。 |
+| [Manual](Manual) | [开发者文档](https://xuu-xuu-xuu.github.io/FlareEngine/) · [使用者文档](Manual/user/index.md) |
