@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="Resources/Branding/FlareMark.png" alt="Flare 引擎图标" width="200">
+  <img src="Resources/Branding/FlareMark-README.png" alt="Flare 引擎图标" width="200">
 </p>
 
 <p align="center">使用C++作为底层逻辑语言的自研游戏引擎</p>
@@ -13,4 +13,4 @@
 | [BuildConfig](BuildConfig) | 原生目标和资源构建规则，以及 C# 与 NuGet 配置。 |
 | [Scripts](Scripts) | 编辑器启动、脚本预览、打包和游戏导出的 PowerShell 入口。 |
 | [ThirdParty](ThirdParty) | 随源码分发的第三方库及其许可证。 |
-| [Manual](Manual) | [开发者文档](https://xuu-xuu-xuu.github.io/FlareEngine/) · [使用者文档](Manual/user/index.md) |
+| [Manual](Manual) | [开发者文档](https://xuu-xuu-xuu.github.io/FlareEngine/) · [使用者文档](https://xuu-xuu-xuu.github.io/FlareEngine/user/) |
