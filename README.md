@@ -5,5 +5,5 @@
 <p align="center">使用C++作为底层逻辑语言的自研游戏引擎</p>
 
 <p align="center">
-  <a href="开发者文档.md">开发者文档</a> · <a href="使用者文档.md">使用者文档</a>
+  <a href="https://xuu-xuu-xuu.github.io/FlareEngine/">开发者文档</a> · <a href="使用者文档.md">使用者文档</a>
 </p>

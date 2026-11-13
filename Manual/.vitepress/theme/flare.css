@@ -1,0 +1,28 @@
+.dark {
+  color-scheme: dark;
+  --vp-c-bg: #16181c;
+  --vp-c-bg-alt: #141619;
+  --vp-c-bg-soft: #202329;
+  --vp-c-bg-elv: #202329;
+  --vp-c-divider: #353a44;
+  --vp-c-text-1: #edf0f5;
+  --vp-c-text-2: #c2cad7;
+  --vp-c-text-3: #9da6b6;
+  --vp-c-brand-1: #fece7b;
+  --vp-c-brand-2: #ffdfa6;
+  --vp-c-brand-3: #b98032;
+  --vp-c-brand-soft: rgba(254, 206, 123, 0.13);
+  --vp-font-family-base: 'Segoe UI', 'Microsoft YaHei UI', sans-serif;
+}
+
+.VPNavBarTitle .title::before {
+  content: '';
+  display: inline-block;
+  width: 32px;
+  height: 32px;
+  margin-right: 10px;
+  background: url('../../../Resources/Branding/FlareMark.png') center / contain no-repeat;
+}
+
+.vp-doc p, .vp-doc td { line-height: 1.85; }
+.vp-doc a { text-underline-offset: 0.2em; }

@@ -1,0 +1,9 @@
+# 从窗口消息到一帧画面
+
+## 入口与输入
+
+[CreateEngineWindow()](https://github.com/xuu-xuu-xuu/FlareEngine/blob/e7ca801292037b33172d094cc4a434682ac83c9c/Source/PlatformLayer/Windows/Window.cpp#L149) 创建 Win32 窗口，[PumpWindowMessages()](https://github.com/xuu-xuu-xuu/FlareEngine/blob/e7ca801292037b33172d094cc4a434682ac83c9c/Source/PlatformLayer/Windows/Window.cpp#L254) 取出消息，[ProcessWindowsInput()](https://github.com/xuu-xuu-xuu/FlareEngine/blob/e7ca801292037b33172d094cc4a434682ac83c9c/Source/PlatformLayer/Windows/WindowsInput.cpp#L5) 更新键鼠状态。[FreeCameraInputRouter](https://github.com/xuu-xuu-xuu/FlareEngine/blob/e7ca801292037b33172d094cc4a434682ac83c9c/Source/FunctionLayer/Application/FreeCameraInput.h#L9) 从输入提取相机操作。宿主 [RunSandboxApp()](https://github.com/xuu-xuu-xuu/FlareEngine/blob/e7ca801292037b33172d094cc4a434682ac83c9c/Source/FunctionLayer/Application/SandboxApp.cpp#L73) 协调计时、更新、绘制和关闭。
+
+## 应用与渲染的交界
+
+[BuildFrameData()](https://github.com/xuu-xuu-xuu/FlareEngine/blob/e7ca801292037b33172d094cc4a434682ac83c9c/Source/FunctionLayer/Application/FrameData.h#L77) 从世界提取相机、网格、灯光等帧数据。[RenderFrame](https://github.com/xuu-xuu-xuu/FlareEngine/blob/e7ca801292037b33172d094cc4a434682ac83c9c/Source/FunctionLayer/Rendering/Renderer.h#L19) 只在当前绘制调用期间借用这份数据。[Renderer](https://github.com/xuu-xuu-xuu/FlareEngine/blob/e7ca801292037b33172d094cc4a434682ac83c9c/Source/FunctionLayer/Rendering/Renderer.h#L40) 定义初始化、绘制和释放接口。[SandboxRenderer](https://github.com/xuu-xuu-xuu/FlareEngine/blob/e7ca801292037b33172d094cc4a434682ac83c9c/Source/FunctionLayer/Rendering/SandboxRenderer.h#L29) 实现场景绘制，[EditorRenderer](https://github.com/xuu-xuu-xuu/FlareEngine/blob/e7ca801292037b33172d094cc4a434682ac83c9c/Source/ToolLayer/Editor/EditorRenderer.h#L9) 同样继承该接口，内部持有前者，为编辑器组织视口与 GUI 合成。[WindowProfileRenderer](https://github.com/xuu-xuu-xuu/FlareEngine/blob/e7ca801292037b33172d094cc4a434682ac83c9c/Source/FunctionLayer/Scripting/NativeBridge/WindowProfile.h#L10) 包装绘制并采集窗口性能记录。

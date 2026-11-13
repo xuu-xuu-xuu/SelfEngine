@@ -49,6 +49,13 @@ CMakeUserPresets.json
 !/开发者文档.md
 !/使用者文档.md
 
+# 开发者文档站的正文公开，编写约定与本机预览产物仅在本地保存。
+/开发者说明文档.md
+!/Manual/**/*.md
+/Manual/node_modules/
+/Manual/.vitepress/cache/
+/Manual/.vitepress/dist/
+
 # 本地测试、检查、演示和实验保留在磁盘，不发布到 GitHub。
 /Tests/
 /Samples/
