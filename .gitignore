@@ -43,3 +43,8 @@ CMakeUserPresets.json
 *.ilk
 *.idb
 *.exp
+
+# GitHub 首页与公开文档入口
+!/README.md
+!/开发者文档.md
+!/使用者文档.md
