@@ -1,4 +1,4 @@
-﻿param(
+param(
     [ValidateSet('Debug','Release')][string]$Configuration='Release',
     [Parameter(Mandatory=$true)][string]$Evidence,
     [string]$Package='',
@@ -15,7 +15,7 @@ if($Package){$Configuration='Release'}
 if($Scenario -eq 'Export' -and !$Package){throw 'The export workflow requires the actual editor package.'}
 $native=if($Package){$engine}else{Join-Path $engine ('out/build/windows-x64-'+$Configuration.ToLowerInvariant())}
 $tool=Join-Path $(if($Package){Join-Path $engine 'Tools'}else{$native}) 'ProjectTool.exe'
-$editor=Join-Path $native 'SelfEngineEditor.exe'
+$editor=Join-Path $native 'FlareEditor.exe'
 $powershell=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
 $Evidence=[IO.Path]::GetFullPath($Evidence)
 if(Test-Path -LiteralPath $Evidence){throw 'Use a new editor-workflow evidence directory.'}

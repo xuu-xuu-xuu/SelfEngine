@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.25)
 project(SelfEngine VERSION 0.1.0 LANGUAGES C CXX)
+enable_language(RC)
+configure_file(Resources/Branding/FlareResources.rc.in "${CMAKE_CURRENT_BINARY_DIR}/FlareResources.rc" @ONLY)
+set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/FlareResources.rc" PROPERTIES
+    OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/Resources/Branding/Flare.ico")
 include("${CMAKE_CURRENT_SOURCE_DIR}/Scripts/DetectMsvcIncludes.cmake")
 include(CTest)
 function(se_target target)
@@ -9,7 +13,7 @@ function(se_target target)
     target_compile_definitions(${target} PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN)
     set_target_properties(${target} PROPERTIES CXX_EXTENSIONS OFF)
     if(MSVC)
-        target_compile_options(${target} PRIVATE /W4 /permissive- /utf-8)
+        target_compile_options(${target} PRIVATE "$<$<COMPILE_LANGUAGE:C,CXX>:/W4;/permissive-;/utf-8>")
     endif()
 endfunction()
 add_library(EngineCore STATIC Source/CoreLayer/Log.cpp Source/CoreLayer/Localization.cpp Source/CoreLayer/Utf.cpp Source/CoreLayer/TaskQueue.cpp Source/CoreLayer/Profiler.cpp Source/CoreLayer/Hash.cpp)
@@ -94,13 +98,14 @@ target_compile_definitions(imgui PUBLIC IMGUI_USE_WCHAR32)
 target_link_libraries(imgui PRIVATE user32 gdi32 dwmapi imm32)
 add_library(EngineEditor STATIC Source/ToolLayer/Editor/MaterialThumbnail.cpp Source/ToolLayer/Editor/ExternalChangeMonitor.cpp Source/ToolLayer/Editor/BuildRestartRequest.cpp Source/ToolLayer/Editor/RecoveryApply.cpp Source/ToolLayer/Editor/EditorSession.cpp Source/ToolLayer/Editor/ImGuiEditor.cpp Source/ToolLayer/Editor/WindowsEditorInput.cpp Source/ToolLayer/Editor/EditorLayout.cpp Source/ToolLayer/Editor/EditorCommand.cpp Source/ToolLayer/Editor/AssetImportService.cpp Source/ToolLayer/Editor/EditorPlayback.cpp Source/ToolLayer/Editor/EditorSessionStore.cpp Source/ToolLayer/Editor/ExportOperation.cpp Source/ToolLayer/Editor/ProjectSettingsService.cpp Source/ToolLayer/Editor/ExportService.cpp Source/ToolLayer/Editor/ExportJob.cpp Source/ToolLayer/Editor/EditorProcessRunner.cpp)
 target_sources(EngineEditor PRIVATE Source/ToolLayer/Editor/TODPreview.cpp)
+target_sources(EngineEditor PRIVATE Source/ToolLayer/Editor/ExternalProcessBroker.cpp)
 target_sources(EngineEditor PRIVATE Source/ToolLayer/Editor/ImGuiEditorRecovery.cpp)
 target_sources(EngineEditor PRIVATE Source/ToolLayer/Editor/ImGuiEditorBuildControl.cpp)
 target_sources(EngineEditor PRIVATE Source/ToolLayer/Editor/EditorSmokeDriver.cpp)
 target_sources(EngineEditor PRIVATE Source/ToolLayer/Editor/EditorAssetActions.cpp Source/ToolLayer/Editor/EditorScriptTools.cpp Source/ToolLayer/Editor/ImGuiEditorAssets.cpp)
 target_sources(EngineEditor PRIVATE Source/ToolLayer/Editor/EditorSettingsDocuments.cpp)
 target_sources(EngineEditor PRIVATE Source/ToolLayer/Editor/ImGuiGeometry.cpp)
-target_sources(EngineEditor PRIVATE Source/ToolLayer/Editor/EditorViewportCamera.cpp)
+target_sources(EngineEditor PRIVATE Source/ToolLayer/Editor/EditorViewportCamera.cpp Source/ToolLayer/Editor/EditorGizmo.cpp)
 target_sources(EngineEditor PRIVATE Source/ToolLayer/Editor/PropertyWidgets.cpp)
 target_sources(EngineEditor PRIVATE Source/ToolLayer/Editor/MaterialEditSession.cpp)
 target_sources(EngineEditor PRIVATE Source/ToolLayer/Editor/SceneFileWorkflow.cpp)
@@ -112,7 +117,7 @@ target_link_libraries(EngineEditor PRIVATE comdlg32 shell32)
 target_sources(EngineEditor PRIVATE Source/ToolLayer/Editor/UICanvasEditor.cpp)
 add_library(EngineNative SHARED Source/FunctionLayer/Scripting/NativeBridge/EngineNative.cpp Source/FunctionLayer/Scripting/NativeBridge/WindowProfile.cpp)
 se_target(EngineNative)
-target_link_libraries(EngineNative PRIVATE EngineRuntime EnginePhysics EngineGameUI EngineSandboxHost EngineSandboxRenderer EngineEditorApp)
+target_link_libraries(EngineNative PRIVATE EngineRuntime EnginePhysics EngineGameUI EngineSandboxHost EngineSandboxRenderer EngineEditorApp EngineEditorRenderer)
 add_executable(ImportProbe Source/ToolLayer/Tools/ImportProbe.cpp)
 se_target(ImportProbe)
 target_link_libraries(ImportProbe PRIVATE EngineAssets)
@@ -120,18 +125,20 @@ add_library(EngineApplication STATIC Source/FunctionLayer/Application/FrameData.
 se_target(EngineApplication)
 target_link_libraries(EngineApplication PUBLIC EngineRuntime EnginePhysics EngineGameUI EngineAssets)
 add_library(EnginePlatform STATIC Source/PlatformLayer/Windows/ExecutablePath.cpp
+    Source/PlatformLayer/Windows/StartupProgress.cpp Source/PlatformLayer/Windows/AppBranding.cpp
+    Source/PlatformLayer/Windows/ProcessDiagnostics.cpp
     Source/PlatformLayer/Windows/HResult.cpp Source/PlatformLayer/Windows/Window.cpp
     Source/PlatformLayer/Windows/WindowsInput.cpp Source/PlatformLayer/Windows/WindowsUiInput.cpp Source/PlatformLayer/Windows/FrameTimer.cpp
     Source/PlatformLayer/Windows/UiDirectWriteTextService.cpp
     Source/PlatformLayer/Windows/Win32UiPlatformServices.cpp)
 se_target(EnginePlatform)
-target_link_libraries(EnginePlatform PUBLIC EngineCore EngineGameUI PRIVATE user32 imm32)
+target_link_libraries(EnginePlatform PUBLIC EngineCore EngineGameUI PRIVATE user32 imm32 shell32)
 add_library(EngineSandboxHost STATIC Source/FunctionLayer/Application/SandboxApp.cpp Source/FunctionLayer/Application/SandboxDiagnostics.cpp)
 se_target(EngineSandboxHost)
 target_link_libraries(EngineSandboxHost PUBLIC EnginePlatform EngineApplication)
-add_library(EngineEditorApp STATIC Source/ToolLayer/Editor/EditorApplication.cpp Source/ToolLayer/Editor/EditorPlayInput.cpp)
+add_library(EngineEditorApp STATIC Source/ToolLayer/Editor/EditorApplication.cpp Source/ToolLayer/Editor/EditorPlayInput.cpp Source/ToolLayer/Editor/EditorViewportController.cpp Source/ToolLayer/Editor/EditorFloatingWindows.cpp)
 se_target(EngineEditorApp)
-target_link_libraries(EngineEditorApp PUBLIC EngineEditor EngineSandboxHost EngineEditorUi EngineUiRender EnginePlatform)
+target_link_libraries(EngineEditorApp PUBLIC EngineEditor EngineSandboxHost EngineEditorUi EngineUiRender EnginePlatform EngineSandboxRenderer PRIVATE dwmapi)
 add_library(EngineProject STATIC Source/ToolLayer/Tools/Project.cpp)
 se_target(EngineProject)
 target_link_libraries(EngineProject PUBLIC EngineRuntime EngineAssets EngineGameUI EnginePhysics EngineCore)
@@ -150,6 +157,7 @@ add_library(EngineGraphics STATIC
     Source/PlatformLayer/Graphics/D3D12/D3D12Taa.cpp
     Source/PlatformLayer/Graphics/D3D12/D3D12DepthPrepass.cpp
     Source/PlatformLayer/Graphics/D3D12/D3D12Gui.cpp
+    Source/PlatformLayer/Graphics/D3D12/D3D12SceneOverlay.cpp
     Source/PlatformLayer/Graphics/D3D12/D3D12Forward.cpp
     Source/PlatformLayer/Graphics/D3D12/D3D12Shadow.cpp
     Source/PlatformLayer/Graphics/D3D12/D3D12PostProcess.cpp
@@ -162,6 +170,7 @@ add_library(EngineGraphics STATIC
     Source/PlatformLayer/Graphics/D3D12/D3D12StateTracker.cpp
     Source/PlatformLayer/Graphics/D3D12/D3D12GpuTimer.cpp
     Source/PlatformLayer/Graphics/D3D12/D3D12Dred.cpp
+    Source/PlatformLayer/Graphics/D3D12/D3D12PipelineLibraryStorage.cpp
     Source/PlatformLayer/Graphics/D3D12/D3D12Context.cpp Source/PlatformLayer/Graphics/D3D12/D3D12Presentation.cpp Source/PlatformLayer/Graphics/D3D12/D3D12Triangle.cpp Source/PlatformLayer/Graphics/D3D12/D3D12Mesh.cpp Source/PlatformLayer/Graphics/D3D12/D3D12Texture.cpp Source/PlatformLayer/Graphics/D3D12/D3D12Buffer.cpp Source/PlatformLayer/Graphics/D3D12/D3D12Rhi.cpp Source/PlatformLayer/Graphics/D3D12/D3D12Shader.cpp Source/PlatformLayer/Graphics/D3D12/D3D12Result.cpp)
 se_target(EngineGraphics)
 if(MSVC)
@@ -234,16 +243,30 @@ add_dependencies(BenchmarkRunner CopyLocalizationResources)
 add_executable(EngineSandbox Samples/EngineSandbox/main.cpp Samples/EngineSandbox/T02Examples.cpp)
 se_target(EngineSandbox)
 target_link_libraries(EngineSandbox PRIVATE EngineSandboxHost EngineSandboxRenderer EngineCameraSample EngineProject)
-add_library(EngineEditorProduct STATIC Source/ToolLayer/Editor/EditorLauncher.cpp Source/ToolLayer/Editor/EditorWorker.cpp Source/ToolLayer/Editor/EditorRenderer.cpp)
+add_library(EngineEditorProduct STATIC Source/ToolLayer/Editor/EditorLauncher.cpp Source/ToolLayer/Editor/LauncherStyle.cpp Source/ToolLayer/Editor/EditorWorker.cpp Source/ToolLayer/Editor/EditorLoadingScreen.cpp)
+target_sources(EngineEditorProduct PRIVATE Source/ToolLayer/Editor/LoadingRibbon.cpp)
 se_target(EngineEditorProduct)
-target_link_libraries(EngineEditorProduct PUBLIC EngineEditorApp EngineSandboxRenderer EngineAssets EngineProjectSession ole32 uuid shell32 comdlg32)
+add_library(EngineEditorRenderer STATIC Source/ToolLayer/Editor/EditorRenderer.cpp)
+se_target(EngineEditorRenderer)
+target_link_libraries(EngineEditorRenderer PUBLIC EngineSandboxRenderer)
+target_link_libraries(EngineEditorProduct PUBLIC EngineEditorApp EngineEditorRenderer EngineSandboxRenderer EngineAssets EngineProjectSession ole32 uuid shell32 comdlg32 gdi32 PRIVATE dwmapi uxtheme comctl32 gdiplus)
 add_executable(EditorSandbox Source/ToolLayer/Tools/EditorSandbox.cpp)
 se_target(EditorSandbox)
 target_link_libraries(EditorSandbox PRIVATE EngineEditorProduct)
-add_executable(SelfEngineEditor Source/ToolLayer/Tools/SelfEngineEditor.cpp)
+add_executable(SelfEngineEditor WIN32 Source/ToolLayer/Tools/SelfEngineEditor.cpp)
 se_target(SelfEngineEditor)
 target_link_libraries(SelfEngineEditor PRIVATE EngineEditorProduct)
+set_target_properties(SelfEngineEditor PROPERTIES OUTPUT_NAME FlareEditor)
+foreach(flare_target SelfEngineEditor EngineNative EditorSandbox EngineSandbox)
+    target_sources(${flare_target} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/FlareResources.rc")
+endforeach()
+target_compile_definitions(EngineNative PRIVATE FLARE_NATIVE_LIBRARY)
+# 旧快捷方式/脚本仍能启动同一个 Flare 程序；正式入口和新打包均使用 FlareEditor.exe。
+add_custom_command(TARGET SelfEngineEditor POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:SelfEngineEditor>" "$<TARGET_FILE_DIR:SelfEngineEditor>/GearEditor.exe"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:SelfEngineEditor>" "$<TARGET_FILE_DIR:SelfEngineEditor>/SelfEngineEditor.exe" VERBATIM)
 add_executable(ControlsSandbox Source/ToolLayer/Tools/ControlsSandbox.cpp)
+target_sources(ControlsSandbox PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/FlareResources.rc")
 se_target(ControlsSandbox)
 target_link_libraries(ControlsSandbox PRIVATE EngineSandboxHost EngineSandboxRenderer)
 add_custom_target(CopyLocalizationResources ALL
@@ -256,6 +279,13 @@ add_dependencies(EngineSandbox CopyLocalizationResources)
 add_dependencies(EditorSandbox CopyLocalizationResources)
 add_dependencies(ControlsSandbox CopyLocalizationResources)
 add_dependencies(SelfEngineEditor CopyLocalizationResources CopyRendererResources)
+add_custom_target(CopyFlareBranding ALL
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/Resources/Branding"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/Resources/Branding/Flare.ico"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Resources/Branding/FlareMark.png"
+        "${CMAKE_BINARY_DIR}/Resources/Branding" VERBATIM)
+add_dependencies(SelfEngineEditor CopyFlareBranding)
 add_custom_target(CopyEditorTemplates ALL
     COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/Resources"
     COMMAND ${CMAKE_COMMAND} -E copy_directory
@@ -271,6 +301,7 @@ add_custom_target(CopyRendererResources ALL
         "${CMAKE_CURRENT_SOURCE_DIR}/Resources/Shaders/ExposureLut.hlsl"
         "${CMAKE_CURRENT_SOURCE_DIR}/Resources/Shaders/TaaVelocity.hlsl"
         "${CMAKE_CURRENT_SOURCE_DIR}/Resources/Shaders/TaaResolve.hlsl"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Resources/Shaders/SceneOverlay.hlsl"
         "$<TARGET_FILE_DIR:EngineSandbox>/Resources/Shaders"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/Samples/Triangle/Triangle.hlsl"
         "$<TARGET_FILE_DIR:EngineSandbox>/Resources/Shaders/Triangle.hlsl"
@@ -653,6 +684,23 @@ if(BUILD_TESTING)
     add_test(NAME EditorPanelSession COMMAND EditorPanelSessionTests "${CMAKE_BINARY_DIR}/test-output/editor-panel-session/verification.json")
     set_tests_properties(EditorPanelSession PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" TIMEOUT 60)
     add_executable(EditorViewportTests Tests/EditorViewportTests.cpp)
+    add_executable(EditorViewportInteractionTests Tests/EditorViewportInteractionTests.cpp)
+    add_executable(EditorViewportGpuTests Tests/EditorViewportGpuTests.cpp)
+    add_executable(EditorSceneOverlayGpuTests Tests/EditorSceneOverlayGpuTests.cpp)
+    se_target(EditorSceneOverlayGpuTests)
+    target_link_libraries(EditorSceneOverlayGpuTests PRIVATE EngineEditorApp EngineEditorRenderer)
+    add_dependencies(EditorSceneOverlayGpuTests CopyLocalizationResources CopyRendererResources)
+    add_test(NAME EditorSceneOverlayGpu COMMAND EditorSceneOverlayGpuTests "${CMAKE_BINARY_DIR}/test-output/editor-scene-overlay-gpu")
+    set_tests_properties(EditorSceneOverlayGpu PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" TIMEOUT 120 LABELS GPU)
+    se_target(EditorViewportGpuTests)
+    target_link_libraries(EditorViewportGpuTests PRIVATE EngineEditorApp EngineEditorRenderer)
+    add_dependencies(EditorViewportGpuTests CopyLocalizationResources CopyRendererResources)
+    add_test(NAME EditorViewportGpu COMMAND EditorViewportGpuTests "${CMAKE_BINARY_DIR}/test-output/editor-viewport-gpu")
+    set_tests_properties(EditorViewportGpu PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" TIMEOUT 120 LABELS GPU)
+    se_target(EditorViewportInteractionTests)
+    target_link_libraries(EditorViewportInteractionTests PRIVATE EngineEditorApp)
+    add_test(NAME EditorViewportInteraction COMMAND EditorViewportInteractionTests)
+    set_tests_properties(EditorViewportInteraction PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" TIMEOUT 60)
     se_target(EditorViewportTests)
     target_link_libraries(EditorViewportTests PRIVATE EngineEditorUi)
     add_test(NAME EditorViewport COMMAND EditorViewportTests "${CMAKE_BINARY_DIR}/test-output/editor-viewport/verification.json")
@@ -1128,6 +1176,11 @@ if(BUILD_TESTING)
     target_link_libraries(ApplicationTests PRIVATE EngineSandboxHost)
     target_link_libraries(WindowsEditorInputTests PRIVATE EngineEditor)
     target_link_libraries(EditorApplicationTests PRIVATE EngineEditorApp)
+    add_executable(EditorFloatingWindowsTests Tests/EditorFloatingWindowsTests.cpp)
+    se_target(EditorFloatingWindowsTests)
+    target_link_libraries(EditorFloatingWindowsTests PRIVATE EngineEditorApp EngineEditorRenderer)
+    add_test(NAME EditorFloatingWindows COMMAND EditorFloatingWindowsTests "${CMAKE_BINARY_DIR}/test-output/editor-floating-windows")
+    set_tests_properties(EditorFloatingWindows PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" TIMEOUT 90)
     target_link_libraries(MetadataTests PRIVATE EngineRuntime EngineAssets EngineEditor)
     target_link_libraries(ProfilerTests PRIVATE EngineCore)
     target_link_libraries(ProjectTests PRIVATE EngineProject)
@@ -1146,6 +1199,35 @@ if(BUILD_TESTING)
     target_link_libraries(EditorPlayInputTests PRIVATE EngineEditorApp)
     target_link_libraries(EditorTransformTests PRIVATE EngineEditor)
     target_link_libraries(EditorFileTests PRIVATE EngineEditor)
+    add_executable(RuntimeDiagnosticsTests Tests/RuntimeDiagnosticsTests.cpp)
+    add_executable(EditorStartupTests Tests/EditorStartupTests.cpp "${CMAKE_CURRENT_BINARY_DIR}/FlareResources.rc")
+    se_target(EditorStartupTests)
+    target_link_libraries(EditorStartupTests PRIVATE EngineEditorProduct)
+    add_test(NAME EditorStartup COMMAND EditorStartupTests "${CMAKE_BINARY_DIR}/test-output/editor-startup")
+    set_tests_properties(EditorStartup PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" TIMEOUT 60)
+    add_executable(PipelineLibraryStorageTests Tests/PipelineLibraryStorageTests.cpp)
+    add_executable(ProcessLifecycleProbe Tests/ProcessLifecycleProbe.cpp)
+    se_target(ProcessLifecycleProbe)
+    target_link_libraries(ProcessLifecycleProbe PRIVATE EngineEditor)
+    add_executable(ProcessLifecycleTests Tests/ProcessLifecycleTests.cpp)
+    se_target(ProcessLifecycleTests)
+    target_link_libraries(ProcessLifecycleTests PRIVATE EngineEditor)
+    add_dependencies(ProcessLifecycleTests ProcessLifecycleProbe)
+    add_test(NAME ProcessLifecycle COMMAND ProcessLifecycleTests "$<TARGET_FILE:ProcessLifecycleProbe>" "${CMAKE_BINARY_DIR}/test-output/process-lifecycle")
+    set_tests_properties(ProcessLifecycle PROPERTIES TIMEOUT 45 LABELS CPU)
+    add_executable(HlodCancellationTests Tests/HlodCancellationTests.cpp)
+    se_target(HlodCancellationTests)
+    target_link_libraries(HlodCancellationTests PRIVATE EngineSandboxRenderer)
+    add_test(NAME HlodCancellation COMMAND HlodCancellationTests "${CMAKE_BINARY_DIR}/test-output/hlod-cancellation")
+    set_tests_properties(HlodCancellation PROPERTIES TIMEOUT 20 LABELS CPU)
+    se_target(PipelineLibraryStorageTests)
+    target_link_libraries(PipelineLibraryStorageTests PRIVATE EngineGraphics)
+    add_test(NAME PipelineLibraryStorage COMMAND PipelineLibraryStorageTests)
+    set_tests_properties(PipelineLibraryStorage PROPERTIES TIMEOUT 15 LABELS CPU)
+    se_target(RuntimeDiagnosticsTests)
+    target_link_libraries(RuntimeDiagnosticsTests PRIVATE EngineGraphics EnginePlatform)
+    add_test(NAME RuntimeDiagnostics COMMAND RuntimeDiagnosticsTests "${CMAKE_BINARY_DIR}/test-output/runtime-diagnostics")
+    set_tests_properties(RuntimeDiagnostics PROPERTIES TIMEOUT 30)
     add_test(NAME Core COMMAND CoreTests)
     add_test(NAME Tasks COMMAND TasksTests)
     add_test(NAME Runtime COMMAND RuntimeTests)

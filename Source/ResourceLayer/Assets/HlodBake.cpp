@@ -207,10 +207,12 @@ bool WriteHlodScene(const std::filesystem::path& path,const HlodScene& scene,std
     if(!asset_io::WriteAtomic(path,bytes,true)){error="Assets.WriteFailed";return false;}
     return true;
 }
-bool ReadHlodScene(const std::filesystem::path& path,HlodScene& output,std::string& error)
+bool ReadHlodScene(const std::filesystem::path& path,HlodScene& output,std::string& error,std::stop_token stop)
 {
+    const auto cancelled=[&]{if(!stop.stop_requested())return false;error="Hlod.Cancelled";return true;};
+    if(cancelled())return false;
     std::vector<std::uint8_t> bytes;
-    if(!asset_io::Read(path,bytes)||bytes.size()<4+4*4){error="Assets.ReadFailed";return false;}
+    if(!asset_io::Read(path,bytes,stop)||bytes.size()<4+4*4){error=stop.stop_requested()?"Hlod.Cancelled":"Assets.ReadFailed";return false;}
     if(std::memcmp(bytes.data(),HlodMagic,4)!=0)return false;
     const auto* cursor=bytes.data()+4;const auto* end=bytes.data()+bytes.size();
     const auto version=ReadUint32(cursor);cursor+=4;
@@ -222,6 +224,7 @@ bool ReadHlodScene(const std::filesystem::path& path,HlodScene& output,std::stri
     HlodScene candidate;candidate.cellSize=cellSize;candidate.instanceCount=instanceCount;
     for(std::uint32_t cellIndex=0;cellIndex<cellCount;++cellIndex)
     {
+        if(cancelled())return false;
         if(cursor+4*2+4*3+4*3>end)return false;
         HlodCell cell;
         cell.coordinate={static_cast<std::int32_t>(ReadUint32(cursor)),
@@ -236,6 +239,7 @@ bool ReadHlodScene(const std::filesystem::path& path,HlodScene& output,std::stri
             <std::tie(cell.coordinate.x,cell.coordinate.z)))return false;
         for(std::uint32_t partIndex=0;partIndex<partCount;++partIndex)
         {
+            if(cancelled())return false;
             if(cursor+4>end)return false;
             const auto materialLength=ReadUint32(cursor);cursor+=4;
             if(materialLength>HlodMaximumMaterialKey||cursor+materialLength>end)return false;
@@ -250,6 +254,7 @@ bool ReadHlodScene(const std::filesystem::path& path,HlodScene& output,std::stri
             part.mesh.vertices.resize(vertexCount);
             for(auto& vertex:part.mesh.vertices)
             {
+                if(cancelled())return false;
                 for(auto& value:vertex.position){value=ReadFloat(cursor);cursor+=4;}
                 for(auto& value:vertex.normal){value=ReadFloat(cursor);cursor+=4;}
                 for(auto& value:vertex.uv){value=ReadFloat(cursor);cursor+=4;}
@@ -258,6 +263,7 @@ bool ReadHlodScene(const std::filesystem::path& path,HlodScene& output,std::stri
             part.mesh.indices.resize(indexCount);
             for(auto& value:part.mesh.indices)
             {
+                if(cancelled())return false;
                 value=ReadUint32(cursor);cursor+=4;
                 if(value>=vertexCount)return false;
             }
@@ -265,7 +271,7 @@ bool ReadHlodScene(const std::filesystem::path& path,HlodScene& output,std::stri
         }
         candidate.cells.push_back(std::move(cell));
     }
-    if(cursor!=end)return false;
+    if(cancelled()||cursor!=end)return false;
     output=std::move(candidate);return true;
 }
 }

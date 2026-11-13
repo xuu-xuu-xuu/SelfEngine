@@ -2,6 +2,7 @@ using SelfEngine;
 using System.Text.Json.Nodes;
 
 string failureText="Bootstrap.Failed"; // 语言表尚不可用时的启动回退。
+BootstrapDiagnostics? diagnostics=null;
 try
 {
     string? Option(string name)
@@ -12,6 +13,14 @@ try
     using var previewLease=PreviewLease.Acquire(Option("--preview-lease"));
     int frames = int.TryParse(Option("--frames"), out var requested) ? Math.Clamp(requested,1,100000) : 120;
     var projectRoot=Path.GetFullPath(Option("--project-root")??Environment.CurrentDirectory);
+    diagnostics=new BootstrapDiagnostics(projectRoot);
+    if(Option("--verify-runtime") is { } runtimeReport)
+    {
+        diagnostics.Write("Managed.RuntimeCheck.Begin");
+        RuntimePreflight.Verify(runtimeReport);
+        diagnostics.Write("Managed.RuntimeCheck.End");
+        return 0;
+    }
     string ProjectFile(string path)=>Path.IsPathRooted(path)?path:Path.Combine(projectRoot,path);
     string assembly = Option("--project") is { } assemblyOption?ProjectFile(assemblyOption):Path.Combine(AppContext.BaseDirectory,"ProjectScripts","SelfEngine.ProjectScripts.dll");
     string script = Option("--script") ?? "sample.project_mover";
@@ -23,7 +32,9 @@ try
         return 0;
     }
     bool editorMode=args.Contains("--editor");
+    diagnostics.Write("Managed.Session.Create.Begin");
     using var session = new EngineSession();
+    diagnostics.Write("Managed.Session.Create.End");
     session.LoadLocale(Option("--locale") ?? "zh-CN");
     failureText=session.Text("Bootstrap.Failed");
     if(Option("--asset-root") is { } assetRoot)session.SetAssetRoot(ProjectFile(assetRoot),Option("--asset-cache") is { } cacheRoot?ProjectFile(cacheRoot):Path.Combine(projectRoot,"out","Cache","ManagedAssets"));
@@ -62,6 +73,7 @@ try
     bool scriptFailed=false;
     project.Diagnostic += diagnostic =>
     {
+        diagnostics.Write("Managed.ScriptDiagnostic", $"key={diagnostic.Key} phase={diagnostic.Phase} {diagnostic.Detail}");
         Console.Error.WriteLine($"{session.Text(diagnostic.Key)}: entity={diagnostic.EntityHandle} type={diagnostic.ScriptType} phase={diagnostic.Phase} {diagnostic.Detail}");
         if(diagnostic.Key!="Script.FixedStepBudget")scriptFailed=true;
     };
@@ -79,6 +91,8 @@ try
         project.Validate(assembly,allowed,bindings);
         Console.WriteLine(session.Text("Bootstrap.BindingsValidated"));return scriptFailed?1:0;
     }
+    session.EditorPlayChanged+=playing=>diagnostics.Write(playing?"Managed.Play.Callback":"Managed.Stop.Callback");
+    diagnostics.Write(editorMode?"Managed.Editor.Begin":"Managed.Play.Begin");
     if(args.Contains("--editor"))project.RunEditor(projectRoot,assembly,allowed,bindings,Option("--locale")??"zh-CN",!args.Contains("--hidden"),args.Contains("--frames")?(ulong)frames:0,args.Contains("--play"),fieldsPath);
     else
     {
@@ -86,12 +100,17 @@ try
         if (args.Contains("--window")) session.RunWindow(Option("--locale") ?? "zh-CN", !args.Contains("--hidden"), args.Contains("--frames") ? (ulong)frames : 0);
         else for (int frame = 0; frame < frames; ++frame) session.Step(1.0/60.0);
     }
+    diagnostics.Write(editorMode?"Managed.Editor.End":"Managed.Play.End", $"steps={session.StepCount}");
+    diagnostics.Write("Managed.Scripts.Stop.Begin");
     project.Stop();
+    diagnostics.Write("Managed.Scripts.Stop.End");
     Console.WriteLine($"{session.Text("Bootstrap.Completed")}: steps={session.StepCount}, position={session.FindEntity(stableId)?.Transform.Position}");
     return scriptFailed?1:0;
 }
 catch (Exception exception)
 {
-    Console.Error.WriteLine($"{failureText}: {exception.GetType().Name}: {exception.Message}");
+    diagnostics?.Write("Managed.Failed", exception.ToString());
+    Console.Error.WriteLine($"{failureText}: {exception}");
     return 1;
 }
+finally { diagnostics?.Dispose(); }

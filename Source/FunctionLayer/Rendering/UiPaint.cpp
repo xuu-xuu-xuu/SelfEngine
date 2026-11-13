@@ -502,7 +502,12 @@ bool UiGeometryBuilder::Build(const UiDisplayList& displayList,
                     context.Reject("UI.PaintInvalidTextureToken");
                     continue;
                 }
-                context.AppendQuad({command.rect.x + glyph.x, command.rect.y + glyph.y, glyph.width, glyph.height},
+                UiRect destination{command.rect.x + glyph.x, command.rect.y + glyph.y, glyph.width, glyph.height};
+                if(options.textPixelScale.x>0.0f)
+                    destination.x=std::round(destination.x*options.textPixelScale.x)/options.textPixelScale.x;
+                if(options.textPixelScale.y>0.0f)
+                    destination.y=std::round(destination.y*options.textPixelScale.y)/options.textPixelScale.y;
+                context.AppendQuad(destination,
                                    {glyph.u0, glyph.v0, glyph.u1 - glyph.u0, glyph.v1 - glyph.v0},
                                    command.color, texture, clip);
             }

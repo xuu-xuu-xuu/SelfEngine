@@ -102,6 +102,25 @@ void CommandOrder()
     Check(kinds.back() == UiPaintCommandKind::Text, "text after children");
 }
 
+void TextPixelAlignment()
+{
+    UiStubTextService text(8.0f,16.0f);
+    UiDisplayList list;list.width=640;list.height=480;
+    list.Text({0.3f,0.45f,300,50},"ABC",14.0f,{1,1,1,1});
+    for(const float scale:{1.0f,1.25f,1.5f,2.0f})
+    {
+        UiGeometryOptions options;options.textPixelScale={scale,scale};
+        GuiGeometry geometry;UiGeometryStats stats;std::vector<std::string> errors;
+        Check(UiGeometryBuilder{}.Build(list,&text,nullptr,options,geometry,stats,errors),"pixel aligned geometry");
+        Check(!geometry.vertices.empty(),"text geometry exists");
+        for(const auto& vertex:geometry.vertices)
+        {
+            Near(vertex.position.x*scale,std::round(vertex.position.x*scale),"text x lies on a physical pixel");
+            Near(vertex.position.y*scale,std::round(vertex.position.y*scale),"text y lies on a physical pixel");
+        }
+    }
+}
+
 void ClipAndCapacity()
 {
     UiDisplayList list;
@@ -344,6 +363,7 @@ int main(int argc, char** argv)
     try
     {
         CommandOrder();
+        TextPixelAlignment();
         ClipAndCapacity();
         NineSliceAndIndices();
         CanvasAndInvalidImage();

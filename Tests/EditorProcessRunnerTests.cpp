@@ -1,4 +1,5 @@
 #include "ToolLayer/Editor/EditorProcessRunner.h"
+#include "CoreLayer/Log.h"
 #include <atomic>
 #include <chrono>
 #include <filesystem>
@@ -25,6 +26,7 @@ int wmain(int argc,wchar_t** argv)
         Check(argc==2,"usage: EditorProcessRunnerTests <output-dir>");
         auto output=fs::absolute(fs::path(argv[1]));
         std::error_code cleanup;fs::remove_all(output,cleanup);fs::create_directories(output);
+        Check(StartFileLog(output/"trace.log"),"open process trace");
         const auto powershell=WindowsPowerShellPath();
         Check(fs::is_regular_file(powershell),"powershell available");
         ProcessRunResult result;
@@ -37,7 +39,7 @@ int wmain(int argc,wchar_t** argv)
         Check(!RunEditorProcess((output/"missing.exe").wstring(),{},output,output/"missing.log",nullptr,result),"missing executable rejected");
         Check(!result.started,"missing executable did not start");
         std::atomic<bool> cancel{false};
-        std::thread canceller([&]{std::this_thread::sleep_for(std::chrono::milliseconds(300));cancel.store(true);});
+        std::jthread canceller([&]{std::this_thread::sleep_for(std::chrono::milliseconds(300));cancel.store(true);});
         const auto start=std::chrono::steady_clock::now();
         Check(RunEditorProcess(powershell,{L"-NoProfile",L"-Command",L"Start-Sleep -Seconds 5"},output,output/"cancel.log",&cancel,result),"cancellable process starts");
         const auto elapsed=std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()-start).count();

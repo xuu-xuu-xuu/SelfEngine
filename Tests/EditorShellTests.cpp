@@ -1,6 +1,7 @@
 #include "CoreLayer/Localization.h"
 #include "FunctionLayer/UI/Core/UiFrameData.h"
 #include "ToolLayer/Editor/EditorUi/EditorShell.h"
+#include "ToolLayer/Editor/EditorUi/EditorDockState.h"
 
 #include <algorithm>
 #include <cmath>
@@ -28,6 +29,10 @@ void ShellComposition()
 {
     EditorShell shell;
     Check(shell.Initialize(1280.0f, 720.0f), "shell initialize");
+    const auto background=shell.Document().Style(shell.Root()).background;
+    const auto displayByte=[](float linear){return std::lround(255.0f*(1.055f*std::pow(linear,1.0f/2.4f)-0.055f));};
+    Check(displayByte(background.r)==22 && displayByte(background.g)==24 && displayByte(background.b)==28,
+          "toolkit root displays the same charcoal as the native loading screen");
     Check(shell.Root().IsValid() && shell.ConsolePanel().IsValid(), "shell handles");
     Check(shell.Dock().Root().kind == DockNode::Kind::Split && shell.Dock().Root().children.size() == 2,
           "shell dock default");
@@ -239,6 +244,106 @@ void ShellComposition()
     Check(frame.geometry.vertices.empty() && frame.role == UiLayerRole::Editor, "frame data contract");
 }
 
+void DockingInteraction()
+{
+    const auto send=[](EditorShell& shell,UiEventType type,float x,float y) {
+        UiInputEvent event;event.type=type;event.x=x;event.y=y;
+        return shell.Dispatcher().Dispatch(event);
+    };
+    const auto start=[&](EditorShell& shell,EditorPanelId panel) {
+        const auto rect=shell.Layout().Rect(shell.TabButton(panel));
+        Check(send(shell,UiEventType::PointerDown,rect.x+8,rect.y+8),"dock drag starts on tab");
+    };
+    const auto validTree=[](const auto& self,const DockNode& node) -> bool {
+        if(node.kind==DockNode::Kind::Tabs)return !node.tabs.empty();
+        return node.children.size()==2 && self(self,node.children[0]) && self(self,node.children[1]);
+    };
+
+    for(const float dpi:{1.0f,1.25f,1.5f,2.0f})
+    for(int zone=0;zone<5;++zone)
+    {
+        EditorShell shell;shell.SetDpiScale(dpi);
+        Check(shell.Initialize(1280,760),"dock test initialize");
+        shell.Resize(1280*dpi,760*dpi);shell.Frame();
+        const auto target=zone==0?EditorPanelId::Hierarchy:EditorPanelId::Viewport;
+        const auto rect=shell.Layout().Rect(shell.Panel(target));
+        float x=rect.x+rect.width/2,y=rect.y+rect.height/2;
+        if(zone==1)x=rect.x+30;
+        if(zone==2)x=rect.x+rect.width-30;
+        if(zone==3)y=rect.y+30;
+        if(zone==4)y=rect.y+rect.height-30;
+        start(shell,EditorPanelId::Assets);
+        Check(send(shell,UiEventType::PointerMove,x,y),"dock drag movement");
+        shell.Frame();
+        const auto preview=shell.DockPreview();
+        Check(shell.Document().Visible(preview),"all four edges and center provide a preview");
+        const auto predicted=shell.Layout().Rect(preview);
+        Check(send(shell,UiEventType::PointerUp,x,y),"dock drop");
+        shell.Frame();
+        const auto actual=shell.Layout().Rect(shell.Panel(EditorPanelId::Assets));
+        Check(std::abs(predicted.x-actual.x)<0.1f && std::abs(predicted.y+24-actual.y)<0.1f &&
+              std::abs(predicted.width-actual.width)<0.1f && std::abs(predicted.height-24-actual.height)<0.1f,
+              "drop occupies exactly the previewed area after empty groups collapse");
+        Check(validTree(validTree,shell.Dock().Root()),"moving a sole tab leaves no empty dock group");
+        if(zone==0)Check(shell.Dock().Find(EditorPanelId::Assets)==shell.Dock().Find(target),"center merges as tabs");
+        else Check(shell.Dock().Find(EditorPanelId::Assets)!=shell.Dock().Find(target),"edge creates a separate group");
+        Check(!shell.Document().Visible(preview) && !shell.Dispatcher().PointerCapture().IsValid(),"drop clears feedback and capture");
+    }
+
+    {
+        EditorShell shell;Check(shell.Initialize(1280,760),"reorder initialize");
+        auto viewport=shell.Layout().Rect(shell.TabButton(EditorPanelId::Viewport));
+        start(shell,EditorPanelId::UiDesigner);
+        send(shell,UiEventType::PointerMove,viewport.x+3,viewport.y+8);
+        send(shell,UiEventType::PointerUp,viewport.x+3,viewport.y+8);shell.Frame();
+        Check(shell.Dock().Find(EditorPanelId::Viewport)->tabs.front()==EditorPanelId::UiDesigner,"drop before a tab reorders within the same group");
+        viewport=shell.Layout().Rect(shell.TabButton(EditorPanelId::Viewport));
+        start(shell,EditorPanelId::UiDesigner);
+        send(shell,UiEventType::PointerMove,viewport.x+viewport.width-4,viewport.y+8);
+        send(shell,UiEventType::PointerUp,viewport.x+viewport.width-4,viewport.y+8);shell.Frame();
+        Check(shell.Dock().Find(EditorPanelId::Viewport)->tabs.back()==EditorPanelId::UiDesigner,"drop after a tab follows the pointer");
+        const auto content=shell.Layout().Rect(shell.Panel(EditorPanelId::UiDesigner));
+        start(shell,EditorPanelId::Viewport);
+        send(shell,UiEventType::PointerMove,content.x+content.width/2,content.y+30);
+        send(shell,UiEventType::PointerUp,content.x+content.width/2,content.y+30);shell.Frame();
+        Check(shell.Dock().Find(EditorPanelId::Viewport)!=shell.Dock().Find(EditorPanelId::UiDesigner),"a tab can split out of its own multi-tab group");
+    }
+
+    for(int cancel=0;cancel<3;++cancel)
+    {
+        EditorShell shell;Check(shell.Initialize(1280,760),"cancel initialize");
+        const auto original=shell.Dock().Root();
+        const auto rect=shell.Layout().Rect(shell.ViewportPanel());
+        start(shell,EditorPanelId::Assets);
+        send(shell,UiEventType::PointerMove,rect.x+30,rect.y+rect.height/2);
+        shell.Frame();
+        Check(shell.Document().Visible(shell.DockPreview()),"cancel begins with a valid preview");
+        if(cancel==0)send(shell,UiEventType::PointerUp,-10,-10);
+        else if(cancel==1)
+        {
+            UiInputEvent escape;escape.type=UiEventType::KeyDown;escape.key=UiKeyEscape;
+            Check(shell.Dispatcher().Dispatch(escape) && escape.handled,"escape cancels dock drag");
+            send(shell,UiEventType::PointerUp,rect.x+30,rect.y+rect.height/2);
+        }
+        else shell.Dispatcher().ReleasePointerCapture();
+        shell.Frame();
+        Check(shell.Dock().Root()==original,"outside release, escape and capture loss preserve layout");
+        Check(!shell.Document().Visible(shell.DockPreview()) && !shell.Dispatcher().PointerCapture().IsValid(),"cancellation clears the drag completely");
+    }
+
+    {
+        EditorShell shell;Check(shell.Initialize(1280,760),"release point initialize");
+        const auto rect=shell.Layout().Rect(shell.ViewportPanel());
+        start(shell,EditorPanelId::Assets);
+        send(shell,UiEventType::PointerMove,rect.x+30,rect.y+rect.height/2);
+        // 最后一次移动消息指向左侧，松手落在底部，应当按松手坐标停靠。
+        send(shell,UiEventType::PointerUp,rect.x+rect.width/2,rect.y+rect.height-30);shell.Frame();
+        const auto asset=shell.Layout().Rect(shell.Panel(EditorPanelId::Assets));
+        const auto scene=shell.Layout().Rect(shell.Panel(EditorPanelId::Viewport));
+        Check(asset.y>scene.y && std::abs(asset.x-scene.x)<0.1f,"release point overrides the stale move target");
+    }
+}
+
 void ChromeDockAndPersistence()
 {
     EditorShell shell;
@@ -369,8 +474,12 @@ void ChromeDockAndPersistence()
     Check(fallback.Initialize(1280.0f, 760.0f), "fallback shell initialize");
     fallback.SetLayoutPath(layoutPath);
     fallback.Frame();
-    Check(fallback.Dock().Root() == DefaultEditorDockLayout(), "bad layout falls back");
-    Check(std::filesystem::exists(layoutPath.string() + ".bak"), "bad layout backed up");
+    Check(fallback.Dock().Root() == shell.Dock().Root(), "bad layout restores last valid backup");
+    Check(std::filesystem::exists(layoutPath.string() + ".bak"), "valid layout backup preserved");
+    std::ofstream(layoutPath.string()+".bak",std::ios::trunc)<<"broken backup";
+    EditorShell defaults;Check(defaults.Initialize(1280,760),"default fallback initialize");
+    defaults.SetLayoutPath(layoutPath);
+    Check(defaults.Dock().Root()==DefaultEditorDockLayout(),"both corrupt layouts use defaults");
 
     // Tab 拖动合并：把 Assets 拖到 Hierarchy 组，两个标签进入同一组。
     const UiElementHandle hierarchyTab = shell.TabButton(EditorPanelId::Hierarchy);
@@ -397,6 +506,64 @@ void ChromeDockAndPersistence()
     Check(merged != nullptr && merged == mergedWith, "tab drag merges groups");
     Check(std::find(merged->tabs.begin(), merged->tabs.end(), EditorPanelId::Assets) != merged->tabs.end(),
           "merged group contains assets");
+}
+
+void FloatingDocking()
+{
+    const auto send=[](EditorShell& shell,UiEventType type,float x,float y){
+        UiInputEvent event;event.type=type;event.x=x;event.y=y;return shell.Dispatcher().Dispatch(event);
+    };
+    for(const float scale:{1.0f,1.25f,1.5f,2.0f})
+    {
+        EditorShell shell;Check(shell.Initialize(1280,760),"floating shell initializes");shell.SetDpiScale(scale);
+        const auto assetContent=shell.Panel(EditorPanelId::Assets);
+        const auto id=shell.FloatPanel(EditorPanelId::Assets,-1200,200,640,480);Check(id!=0,"tab detaches into new surface");
+        shell.Frame();shell.SetSurfaceSize(id,640,440);shell.Frame();
+        Check(shell.Panel(EditorPanelId::Assets)==assetContent,"floating keeps same panel instance");
+        Check(shell.Dock().SurfaceFor(EditorPanelId::Assets)==id,"floating tab belongs to surface");
+        auto tab=shell.Layout().Rect(shell.TabButton(EditorPanelId::Assets));
+        shell.SetInputSurface(id);send(shell,UiEventType::PointerDown,tab.x+8,tab.y+8);
+        const auto target=shell.Layout().Rect(shell.Panel(EditorPanelId::Hierarchy));
+        shell.SetInputSurface(0);send(shell,UiEventType::PointerMove,target.x+target.width/2,target.y+target.height/2);
+        Check(shell.Document().Visible(shell.DockPreview()),"cross-window merge preview visible");
+        send(shell,UiEventType::PointerUp,target.x+target.width/2,target.y+target.height/2);shell.Frame();
+        Check(shell.Dock().Windows().empty(),"empty floating source window removed");
+        Check(shell.Dock().Find(EditorPanelId::Assets)==shell.Dock().Find(EditorPanelId::Hierarchy),"floating tab docks back into main");
+        Check(shell.Document().Element(shell.DockPreview())!=nullptr,"closing floating root preserves feedback elements");
+
+        const auto first=shell.FloatPanel(EditorPanelId::Assets,100,120);shell.Frame();
+        const auto second=shell.FloatPanel(EditorPanelId::Inspector,800,140);shell.Frame();
+        tab=shell.Layout().Rect(shell.TabButton(EditorPanelId::Assets));
+        shell.SetInputSurface(first);send(shell,UiEventType::PointerDown,tab.x+8,tab.y+8);
+        shell.SetInputSurface(second);send(shell,UiEventType::PointerMove,300,100);send(shell,UiEventType::PointerUp,300,100);shell.Frame();
+        Check(shell.Dock().Windows().size()==1,"floating to floating merge removes source window");
+        Check(shell.Dock().Find(EditorPanelId::Assets)==shell.Dock().Find(EditorPanelId::Inspector),"floating windows merge tabs");
+        tab=shell.Layout().Rect(shell.TabButton(EditorPanelId::Inspector));shell.SetInputSurface(second);
+        send(shell,UiEventType::PointerDown,tab.x+8,tab.y+8);
+        send(shell,UiEventType::PointerMove,300,30);send(shell,UiEventType::PointerUp,300,30);shell.Frame();
+        Check(shell.Dock().Surface(second)->kind==DockNode::Kind::Split&&
+            shell.Dock().Find(EditorPanelId::Assets)!=shell.Dock().Find(EditorPanelId::Inspector),"tabs split inside a floating window");
+        shell.SetFloatingBounds(second,-1500,-200,700,500);
+        const auto encoded=EditorDockState::Serialize(shell.Dock());EditorDock restored;std::string error;
+        Check(EditorDockState::Deserialize(encoded,restored,error)&&restored==shell.Dock(),"multi-surface workspace round trip");
+        const std::filesystem::path unicodePath=u8".cache/浮动布局/工作区.json";
+        Check(EditorDockState::Save(shell.Dock(),unicodePath,error),"floating workspace saves to Unicode path");
+        Check(EditorDockState::Load(unicodePath,restored,error)&&restored==shell.Dock(),"floating Unicode workspace restores");
+        auto duplicate=shell.Dock().Windows();duplicate.push_back(duplicate.front());
+        Check(!restored.RestoreWindows(duplicate),"duplicate window IDs or panel instances rejected");
+        Check(EditorDockState::Deserialize(EditorDockState::Serialize(DefaultEditorDockLayout()),restored,error)&&restored.Windows().empty(),"legacy layout remains readable");
+        shell.CloseFloatingWindow(second);shell.Frame();Check(!shell.Dock().Find(EditorPanelId::Assets),"closing float hides its panels");
+        shell.FocusPanel(EditorPanelId::Assets);shell.Frame();Check(shell.Dock().Find(EditorPanelId::Assets),"closed floating panel reopens from panel command");
+        Check(shell.FloatPanel(EditorPanelId::Assets,100,100)!=second,"new floating window does not reuse a pending native window ID");
+    }
+    EditorShell empty;Check(empty.Initialize(1280,760),"empty main fixture");
+    for(const auto panel:{EditorPanelId::Hierarchy,EditorPanelId::Assets,EditorPanelId::Viewport,EditorPanelId::UiDesigner,EditorPanelId::Inspector,EditorPanelId::Console})
+        Check(empty.FloatPanel(panel,100,100)!=0,"all panels can float");
+    empty.Frame();const auto surface=empty.Dock().SurfaceFor(EditorPanelId::Hierarchy);
+    empty.SetInputSurface(surface);auto tab=empty.Layout().Rect(empty.TabButton(EditorPanelId::Hierarchy));
+    send(empty,UiEventType::PointerDown,tab.x+8,tab.y+8);empty.SetInputSurface(0);
+    send(empty,UiEventType::PointerMove,600,300);send(empty,UiEventType::PointerUp,600,300);empty.Frame();
+    Check(empty.Dock().Root().tabs==std::vector{EditorPanelId::Hierarchy},"tab can return to completely empty main workspace");
 }
 
 void CloseProtection()
@@ -700,6 +867,8 @@ int main(int argc, char** argv)
     {
         ShellComposition();
         ChromeDockAndPersistence();
+        DockingInteraction();
+        FloatingDocking();
         CloseProtection();
         FormPanels();
         AuxiliaryPanels();

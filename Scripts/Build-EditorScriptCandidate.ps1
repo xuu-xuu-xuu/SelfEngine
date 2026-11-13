@@ -81,6 +81,8 @@ function ReadCandidate([string]$Path) {
     if(!$root.StartsWith($operationRoot+'\',[StringComparison]::OrdinalIgnoreCase)){throw 'Editor.ScriptCandidateInvalid'}
     $document=Get-Content -LiteralPath (Join-Path $root 'candidate.json') -Raw -Encoding UTF8 | ConvertFrom-Json
     if($document.schemaVersion -ne 1 -or $document.kind -ne 'SelfEngine.EditorScriptCandidate' -or $document.projectRoot -ne $ProjectRoot -or $document.configuration -ne $Configuration){throw 'Editor.ScriptCandidateInvalid'}
+    $runtimeCheck=Get-Content -LiteralPath (Join-Path $root 'runtime-check.json') -Raw -Encoding UTF8|ConvertFrom-Json
+    if($runtimeCheck.schemaVersion -ne 1 -or !$runtimeCheck.success -or !$runtimeCheck.privateRuntime){throw 'Editor.ScriptCandidateInvalid'}
     foreach($file in $document.files){
         $path=[IO.Path]::GetFullPath((Join-Path $root $file.path))
         if([IO.Path]::IsPathRooted($file.path) -or !$path.StartsWith($root+'\',[StringComparison]::OrdinalIgnoreCase)){throw 'Editor.ScriptCandidateInvalid'}
@@ -121,7 +123,7 @@ try {
         foreach($directory in @('Samples/Managed/Bootstrap','Source/FunctionLayer/Scripting/Managed')){
             $engineInputs+=@(Get-ChildItem -LiteralPath (Join-Path $engineRoot $directory) -File -Recurse | Where-Object {$_.Extension -in @('.cs','.csproj')} | Sort-Object FullName | ForEach-Object {[ordered]@{path=$_.FullName.Substring($engineRoot.Length+1).Replace('\','/');sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()}})
         }
-        foreach($name in @('Directory.Build.props','Directory.Build.targets')){$engineInputs+=@([ordered]@{path=$name;sha256=(Get-FileHash -LiteralPath (Join-Path $engineRoot $name) -Algorithm SHA256).Hash.ToLowerInvariant()})}
+        foreach($name in @('Directory.Build.props','Directory.Build.targets','global.json','Scripts/Build-EditorScriptCandidate.ps1')){$engineInputs+=@([ordered]@{path=$name;sha256=(Get-FileHash -LiteralPath (Join-Path $engineRoot $name) -Algorithm SHA256).Hash.ToLowerInvariant()})}
     }
     $engineIdentity=HashText (ConvertTo-Json -InputObject $engineInputs -Depth 5 -Compress)
     $lastPath=Join-Path (Split-Path -Parent (Split-Path -Parent $OperationDirectory)) ('last-success-'+$Configuration.ToLowerInvariant()+'.json')
@@ -159,15 +161,29 @@ try {
         $bootstrap=Join-Path $engineRoot 'Samples/Managed/Bootstrap/Bootstrap.csproj'
         $properties=@(('-p:Configuration='+$Configuration),('-p:DirectoryBuildPropsPath='+$props),'-p:UseSharedCompilation=false','-nodeReuse:false')
         $failureKey='Preview.RestoreFailed'
-        Step 'restore_host' $dotnet (@('restore',$bootstrap,'--configfile',(Join-Path $engineRoot 'NuGet.Config'),'--packages',(Join-Path $engineRoot 'out/nuget/packages'),'--nologo')+$properties)
+        Step 'restore_host' $dotnet (@('restore',$bootstrap,'--runtime','win-x64','-p:SelfContained=true','--configfile',(Join-Path $engineRoot 'NuGet.Config'),'--packages',(Join-Path $engineRoot 'out/nuget/packages'),'--nologo')+$properties)
         $failureKey='Preview.BuildFailed'
-        Step 'build_host' $dotnet (@('build',$bootstrap,'--no-restore','--nologo')+$properties)
-        $hostOutput=Join-Path $OperationDirectory ('managed/bin/Bootstrap/'+$Configuration+'/net10.0')
-        Get-ChildItem -LiteralPath $hostOutput | Copy-Item -Destination $runtime -Recurse -Force
+        Step 'publish_host' $dotnet (@('publish',$bootstrap,'--runtime','win-x64','--self-contained','true','--output',$runtime,'-p:PublishSingleFile=false','-p:PublishTrimmed=false','--no-restore','--nologo')+$properties)
         Copy-Item -LiteralPath $native -Destination (Join-Path $runtime 'EngineNative.dll')
         Copy-EngineRendererResources -NativeDirectory $NativeDirectory -Destination (Join-Path $runtime 'Resources')
         Copy-Item -LiteralPath (Join-Path $engineRoot 'Resources/Localization') -Destination (Join-Path $runtime 'Resources') -Recurse -Force
     }
+    # 不加载原生引擎、不创建窗口；发布图和真实加载均通过后才能成为可用候选。
+    foreach($name in @('System.IO.Pipelines.dll','System.Text.Json.dll','coreclr.dll','hostfxr.dll','hostpolicy.dll')){
+        if(!(Test-Path -LiteralPath (Join-Path $runtime $name) -PathType Leaf)){throw ('Preview.BuildFailed runtime missing '+$name)}
+    }
+    $runtimeConfig=Get-Content -LiteralPath (Join-Path $runtime 'SelfEngine.Bootstrap.runtimeconfig.json') -Raw -Encoding UTF8|ConvertFrom-Json
+    if(!$runtimeConfig.runtimeOptions.includedFrameworks -or $runtimeConfig.runtimeOptions.framework){throw 'Preview.BuildFailed runtime must be self-contained'}
+    if(!$packageMode){
+        $runtimeVersion=@($runtimeConfig.runtimeOptions.includedFrameworks|Where-Object {$_.name -eq 'Microsoft.NETCore.App'})[0].version
+        $runtimePackage=Join-Path $engineRoot ('out/nuget/packages/microsoft.netcore.app.runtime.win-x64/'+$runtimeVersion)
+        $notices=Join-Path $runtime 'ThirdPartyNotices/DotNet';New-Item -ItemType Directory -Path $notices -Force|Out-Null
+        foreach($name in @('LICENSE.TXT','THIRD-PARTY-NOTICES.TXT')){Copy-Item -LiteralPath (Join-Path $runtimePackage $name) -Destination (Join-Path $notices $name)}
+    }
+    $runtimeReport=Join-Path $stage 'runtime-check.json'
+    Step 'verify_runtime' (Join-Path $runtime 'SelfEngine.Bootstrap.exe') @('--project-root',$ProjectRoot,'--verify-runtime',$runtimeReport)
+    $verified=Get-Content -LiteralPath $runtimeReport -Raw -Encoding UTF8|ConvertFrom-Json
+    if($verified.schemaVersion -ne 1 -or !$verified.success -or !$verified.privateRuntime){throw 'Preview.BuildFailed runtime verification failed'}
     if($precompiled){Get-ChildItem -LiteralPath $precompiled.Directory|Copy-Item -Destination $scripts -Recurse -Force;$assemblyName=$precompiled.Assembly}
     else {
         # 引擎引用改用本候选的 API DLL；与便携包导出使用同一 targets 适配。
@@ -194,7 +210,7 @@ try {
 <Project>
   <PropertyGroup><_SelfEngineOriginalProps>$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildProjectDirectory)'))</_SelfEngineOriginalProps></PropertyGroup>
   <Import Project="$(_SelfEngineOriginalProps)" Condition="'$(_SelfEngineOriginalProps)' != ''"/>
-  <PropertyGroup><BaseIntermediateOutputPath>__OBJECT_ROOT__\$(MSBuildProjectName)\</BaseIntermediateOutputPath><MSBuildProjectExtensionsPath>__OBJECT_ROOT__\$(MSBuildProjectName)\</MSBuildProjectExtensionsPath></PropertyGroup>
+  <PropertyGroup><BaseIntermediateOutputPath>__OBJECT_ROOT__\$(MSBuildProjectName)\</BaseIntermediateOutputPath><MSBuildProjectExtensionsPath>__OBJECT_ROOT__\$(MSBuildProjectName)\</MSBuildProjectExtensionsPath><DefaultItemExcludes>$(DefaultItemExcludes);**\bin\**;**\obj\**</DefaultItemExcludes></PropertyGroup>
 </Project>
 '@
         [IO.File]::WriteAllText($scriptProps,$scriptPropsText.Replace('__OBJECT_ROOT__',$isolatedObj),$utf8)

@@ -1,5 +1,6 @@
 #include "AssetIO.h"
 #include "CoreLayer/Hash.h"
+#include "CoreLayer/Log.h"
 #include <algorithm>
 #include <fstream>
 #include <limits>
@@ -8,6 +9,42 @@
 
 namespace se::asset_io
 {
+bool Read(const std::filesystem::path& path,std::vector<std::uint8_t>& bytes,std::stop_token stop)
+{
+    if(stop.stop_requested())return false;
+    if(!stop.stop_possible())return Read(path,bytes);
+    struct Handle{HANDLE value;~Handle(){if(value&&value!=INVALID_HANDLE_VALUE)CloseHandle(value);}};
+    Handle file{CreateFileW(path.c_str(),GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_FLAG_OVERLAPPED|FILE_FLAG_SEQUENTIAL_SCAN,nullptr)};
+    if(file.value==INVALID_HANDLE_VALUE||GetFileType(file.value)!=FILE_TYPE_DISK)return false;
+    LARGE_INTEGER size{};if(!GetFileSizeEx(file.value,&size)||size.QuadPart<0||size.QuadPart>MaxFileBytes)return false;
+    Handle completed{CreateEventW(nullptr,TRUE,FALSE,nullptr)},cancelled{CreateEventW(nullptr,TRUE,FALSE,nullptr)};
+    if(!completed.value||!cancelled.value)return false;
+    std::stop_callback cancellation(stop,[event=cancelled.value]{SetEvent(event);});
+    std::vector<std::uint8_t> candidate(static_cast<std::size_t>(size.QuadPart));
+    std::size_t offset=0;
+    while(offset<candidate.size())
+    {
+        if(stop.stop_requested())return false;
+        const auto count=static_cast<DWORD>(std::min<std::size_t>(1024*1024,candidate.size()-offset));
+        OVERLAPPED operation{};operation.Offset=static_cast<DWORD>(offset);operation.OffsetHigh=static_cast<DWORD>(offset>>32);operation.hEvent=completed.value;
+        ResetEvent(completed.value);DWORD read=0;
+        if(!ReadFile(file.value,candidate.data()+offset,count,nullptr,&operation))
+        {
+            if(GetLastError()!=ERROR_IO_PENDING)return false;
+            HANDLE events[]{completed.value,cancelled.value};const auto wait=WaitForMultipleObjects(2,events,FALSE,10000);
+            if(wait!=WAIT_OBJECT_0)
+            {
+                LogCheckpoint("Assets.Read.Cancel.Begin");CancelIoEx(file.value,&operation);
+                // 完成确认前不能释放 OVERLAPPED/目标内存，内核仍可能正在访问它们。
+                GetOverlappedResult(file.value,&operation,&read,TRUE);
+                LogCheckpoint("Assets.Read.Cancel.End");return false;
+            }
+        }
+        if(!GetOverlappedResult(file.value,&operation,&read,FALSE))return false;
+        if(!read)return false;offset+=read;
+    }
+    if(stop.stop_requested())return false;bytes=std::move(candidate);return true;
+}
 std::string Utf8(const std::filesystem::path& path)
 {
     const auto text = path.generic_u8string();

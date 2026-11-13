@@ -1,4 +1,4 @@
-﻿param(
+param(
     [Parameter(Mandatory=$true)][string]$Package,
     [string]$Evidence='',
     [string]$RepositoryRoot='',
@@ -41,7 +41,7 @@ try {
     $forbidden=@($files | Where-Object {$_.FullName -match '[\\/]out[\\/]Editor[\\/]User[\\/]|[\\/]\.git[\\/]|[\\/]\.cache[\\/]|\\bin\\|\\obj\\'})
     Check 'no_forbidden_paths' ($forbidden.Count -eq 0) ('count='+$forbidden.Count)
     Check 'source_identity' (![string]::IsNullOrWhiteSpace($manifest.source_sha256) -and ![string]::IsNullOrWhiteSpace($manifest.git_head)) ($manifest.source_sha256+' '+$manifest.git_head)
-    $exe=Join-Path $package 'SelfEngineEditor.exe'
+    $exe=Join-Path $package 'FlareEditor.exe'
     $launcherLog=Join-Path $Evidence 'launcher.log'
     $capture=Join-Path $Evidence 'launcher.bmp'
     $launcherCode=RunOutside 'launcher' $exe @('--smoke-launcher','600','--capture-launcher',$capture,'--no-ui-errors')

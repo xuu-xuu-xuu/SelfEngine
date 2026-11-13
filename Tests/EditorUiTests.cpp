@@ -118,10 +118,17 @@ void DockAndPersistence()
           "dock select tab");
     Check(dock.CloseTab(EditorPanelId::Assets), "dock close tab");
     Check(dock.Find(EditorPanelId::Assets) == nullptr &&
-              root.children[0].children[1].active == EditorPanelId::None,
-          "dock close adjusts active");
+              root.children[0].kind == DockNode::Kind::Tabs &&
+              root.children[0].active == EditorPanelId::Hierarchy,
+          "closing the last tab collapses the empty group");
     Check(dock.OpenTab(EditorPanelId::Assets) && dock.Find(EditorPanelId::Assets)->active == EditorPanelId::Assets,
           "dock reopen tab");
+    auto legacy=DefaultEditorDockLayout();
+    legacy.children[0].children[1]=DockNode{};
+    EditorDock repaired(legacy);
+    Check(repaired.Root().children[0].kind==DockNode::Kind::Tabs &&
+          repaired.Find(EditorPanelId::Hierarchy) && !repaired.Find(EditorPanelId::Assets),
+          "legacy layouts collapse empty branches without losing panels");
     Check(dock.DragSplitter({1}, 100.0f, 1000.0f, 50.0f, 50.0f), "dock drag splitter");
     Check(std::abs(dock.Root().children[1].ratio - 0.8f) < 1e-5f, "dock splitter ratio");
 

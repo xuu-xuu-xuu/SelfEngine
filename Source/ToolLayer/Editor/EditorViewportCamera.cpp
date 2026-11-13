@@ -10,6 +10,19 @@ std::optional<CameraSnapshot> EditorViewportCamera::Snapshot(CameraViewport view
     if(!BuildCameraSnapshot({UINT64_MAX,FreeCameraTransform(state).Matrix(),{},true},viewport,frame,snapshot,error))return {};
     return snapshot;
 }
+std::optional<Aabb> EditorEntityBounds(const World& world,AssetStore& assets,EntityHandle entity)
+{
+    if(!world.IsAlive(entity)||!world.IsEnabled(entity))return {};
+    const auto* mesh=world.GetMesh(entity);
+    Aabb local=mesh?Aabb{{-.5f,-.5f,-.5f},{.5f,.5f,.5f}}:Aabb{{-.2f,-.2f,-.2f},{.2f,.2f,.2f}};
+    if(mesh&&!IsBuiltinMesh(mesh->meshAsset))
+    {
+        std::vector<AssetDiagnostic> diagnostics;const auto model=assets.LoadModel(mesh->meshAsset,diagnostics);StaticModelLayout layout;
+        if(!model||!BuildStaticModelLayout(*model,layout,diagnostics))return {};
+        local={layout.minimum,layout.maximum};
+    }
+    return TransformBounds(local,world.GetWorldMatrix(entity));
+}
 StableEntityId PickEditorBounds(const World& world,AssetStore& assets,const CameraSnapshot& camera,float x,float y)
 {
     if(!IsFinite(x)||!IsFinite(y)||x<0||x>1||y<0||y>1)return 0;
@@ -19,13 +32,7 @@ StableEntityId PickEditorBounds(const World& world,AssetStore& assets,const Came
     {
         const auto* mesh=world.GetMesh(entity);if(!mesh)continue;
         bool enabled=true;for(auto p=entity;p;){const auto* r=world.Get(p);if(!r||!r->enabled){enabled=false;break;}p=r->parent;}if(!enabled)continue;
-        Aabb local{{-0.5f,-0.5f,-0.5f},{0.5f,0.5f,0.5f}};
-        if(!IsBuiltinMesh(mesh->meshAsset))
-        {
-            std::vector<AssetDiagnostic> diagnostics;const auto model=assets.LoadModel(mesh->meshAsset,diagnostics);StaticModelLayout layout;
-            if(!model||!BuildStaticModelLayout(*model,layout,diagnostics))continue;local={layout.minimum,layout.maximum};
-        }
-        const auto box=TransformBounds(local,world.GetWorldMatrix(entity));if(!box)continue;
+        const auto box=EditorEntityBounds(world,assets,entity);if(!box)continue;
         double low=0,high=nearest;const double origin[]{ray->origin.x,ray->origin.y,ray->origin.z},direction[]{ray->direction.x,ray->direction.y,ray->direction.z};
         const double minimum[]{box->minimum.x,box->minimum.y,box->minimum.z},maximum[]{box->maximum.x,box->maximum.y,box->maximum.z};
         bool intersects=true;

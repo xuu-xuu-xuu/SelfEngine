@@ -387,7 +387,7 @@ void UiListView::Sync()
         style.height = UiLength::Px(rowHeight_);
         // UiStyle 默认 background 是不透明黑；列表行必须显式透明，否则整行画成黑块。
         style.background = rowBackground_ ? rowBackground_(index) : UiColor{0.0f, 0.0f, 0.0f, 0.0f};
-        style.color = UiColor{0.92f, 0.94f, 0.97f, 1.0f};
+        style.color = rowTextColor_;
         document_->SetStyle(row, style);
         document_->SetText(row, rowText_ ? rowText_(index) : "item " + std::to_string(index));
         rows_.push_back(row);

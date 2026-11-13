@@ -13,6 +13,7 @@
 #include "D3D12Shadow.h"
 #include "D3D12PostProcess.h"
 #include "D3D12Gui.h"
+#include "D3D12SceneOverlay.h"
 #include "D3D12Indirect.h"
 #include "D3D12HiZ.h"
 #include "D3D12DepthPrepass.h"
@@ -79,7 +80,8 @@ void ReportDeviceRemoval(D3D12Presentation& presentation, const Localization& lo
         try
         {
             std::error_code error;
-            const auto directory = std::filesystem::current_path(error) / "out" / "logs";
+            const auto activeLog=CurrentLogPath();
+            const auto directory = activeLog.empty()?std::filesystem::current_path(error)/"out"/"logs":activeLog.parent_path();
             if (!error) std::filesystem::create_directories(directory, error);
             const auto now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
             std::tm local{};
@@ -115,6 +117,14 @@ HRESULT WaitForFence(D3D12Presentation& presentation, UINT64 value, D3D12WaitRea
     UINT64 completed = presentation.fence->GetCompletedValue();
     if (completed == UINT64_MAX) return DXGI_ERROR_DEVICE_REMOVED;
     if (completed >= value) return S_OK;
+    const bool trace=reason==D3D12WaitReason::Shutdown||reason==D3D12WaitReason::Resize||SampleDiagnosticFrame(presentation.submittedFrames);
+    if(trace)LogCheckpoint("GPU.Wait.Begin","reason="+std::to_string(static_cast<int>(reason))+" target="+std::to_string(value),presentation.submittedFrames);
+    struct WaitExit
+    {
+        bool trace;D3D12Presentation& p;UINT64 value;
+        ~WaitExit(){const auto completed=p.fence->GetCompletedValue();if(trace||completed<value||completed==UINT64_MAX)
+            LogCheckpoint("GPU.Wait.End","target="+std::to_string(value)+" completed="+std::to_string(completed),p.submittedFrames);}
+    } waitExit{trace,presentation,value};
     se::CpuScope waitScope(presentation.cpuProfiler,"CPU.GpuFenceWait");
     ++presentation.waitCounts[static_cast<size_t>(reason)];
     const ULONGLONG deadline = GetTickCount64() + 10000;
@@ -227,7 +237,8 @@ bool InitializeD3D12Presentation(D3D12Presentation& presentation,
     queueDescription.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
     queueDescription.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
     queueDescription.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
-    if (!CheckGraphicsResult(context.device->CreateCommandQueue(&queueDescription,
+    if(auto* shared=context.states->BoundQueue())initialized.queue=shared;
+    else if (!CheckGraphicsResult(context.device->CreateCommandQueue(&queueDescription,
         IID_PPV_ARGS(initialized.queue.GetAddressOf())), localization,
         "D3D12.CreateCommandQueueFailed"))
     {
@@ -235,6 +246,7 @@ bool InitializeD3D12Presentation(D3D12Presentation& presentation,
     }
 
     if(!CheckGraphicsResult(initialized.states->BindQueue(*initialized.queue.Get()),localization,"D3D12.StateTrackingFailed"))return false;
+    initialized.stateQueueBound=true;
     initialized.queue->SetName(L"SelfEngine.Direct");
     DXGI_SWAP_CHAIN_DESC1 swapChainDescription{};
     swapChainDescription.Width = initialized.width;
@@ -743,6 +755,12 @@ bool RenderD3D12Frame(D3D12Presentation& presentation, const Localization& local
         }
     }
 
+    if(!content.sceneOverlayShader.empty())
+    {
+        if(!presentation.sceneOverlay)presentation.sceneOverlay=std::make_shared<D3D12SceneOverlay>();
+        if(!presentation.sceneOverlay->Record(presentation,frame,content,states,localization))
+        {presentation.commandList->Close();presentation.failed=true;return false;}
+    }
     if(content.gameUi)
     {
         auto* target=gui?gui->scene->color.resource.Get():presentation.backBuffers[index].Get();
@@ -792,9 +810,15 @@ bool RenderD3D12Frame(D3D12Presentation& presentation, const Localization& local
     ID3D12CommandList* lists[] = { presentation.commandList.Get() };
     presentation.gpuWorkPending = true;
     presentation.untrackedSubmission = true;
+    const auto diagnosticFrame=presentation.submittedFrames+1;
+    const bool trace=SampleDiagnosticFrame(diagnosticFrame);
+    if(trace)LogCheckpoint("GPU.Execute.Begin",{},diagnosticFrame);
     presentation.queue->ExecuteCommandLists(1, lists);
+    if(trace)LogCheckpoint("GPU.Execute.End",{},diagnosticFrame);
     states.Commit();
+    if(trace)LogCheckpoint("GPU.Present.Begin",{},diagnosticFrame);
     const HRESULT presentResult = presentation.swapChain->Present(1, 0);
+    if(trace||FAILED(presentResult))LogCheckpoint("GPU.Present.End","hr="+std::to_string(presentResult),diagnosticFrame);
     // Present 失败也要尝试 Signal；不能丢掉已执行命令的寿命标记。
     const bool signaled = CheckGraphicsResult(SignalSubmittedWork(presentation, frame.fenceValue),
         localization, "D3D12.SignalFenceFailed");
@@ -901,8 +925,10 @@ bool ResizeD3D12Presentation(D3D12Presentation& presentation, UINT width, UINT h
 
 void ReleaseD3D12Presentation(D3D12Presentation& presentation) noexcept
 {
+    LogCheckpoint("GPU.Release.Begin");
     // 未提交批次只取消候选状态；已提交工作仍按原来的 Fence 收拢。
     presentation.uploadStates.reset();
+    LogCheckpoint("GPU.Drain.Begin");
     if (presentation.gpuWorkPending && !DeviceWasRemoved(presentation)
         && FAILED(FlushQueue(presentation, D3D12WaitReason::Shutdown)) && !DeviceWasRemoved(presentation))
     {
@@ -910,14 +936,17 @@ void ReleaseD3D12Presentation(D3D12Presentation& presentation) noexcept
         std::fputs("D3D12 shutdown could not prove GPU completion; refusing to release in-use resources.\n", stderr);
         std::terminate();
     }
+    LogCheckpoint("GPU.Drain.End");
     presentation.commandList.Reset();
     for (auto& frame : presentation.frames)
     {
+        frame.sceneOverlay.reset();
         frame.allocator.Reset();frame.fenceValue=0;
         frame.timestampQueries.Reset();frame.timestampReadback.Reset();frame.timestampsPending=false;
         frame.drawConstants.clear();frame.instanceSlices.clear();frame.uploadDestinations.clear();frame.uploads.Release();frame.baselineConstants.Release();frame.descriptors.Release();frame.outputDescriptors.Release();frame.environmentDescriptors.Release();frame.postDescriptors.Release();frame.guiDescriptors.Release();frame.gameUiDescriptors.Release();frame.forwardConstants={};frame.shadow.reset();frame.constantCursor=0;
     }
     presentation.fenceEvent.Close();
+    presentation.sceneOverlay.reset();
     presentation.fence.Reset();
     for (auto& buffer : presentation.backBuffers) buffer.Reset();
     presentation.rtvs.reset();presentation.gameUiRtvs.reset();
@@ -926,7 +955,8 @@ void ReleaseD3D12Presentation(D3D12Presentation& presentation) noexcept
     presentation.hdr.Reset();presentation.hdrRtv.reset();presentation.hdrSrv.reset();presentation.post.reset();presentation.srvPool.reset();presentation.rtvPool.reset();
     presentation.shadow.reset();presentation.shadowTargets.clear();presentation.dsvPool.reset();
     presentation.swapChain.Reset();
-    if(presentation.states)presentation.states->UnbindQueue(presentation.queue.Get());
+    if(presentation.states&&presentation.stateQueueBound)presentation.states->UnbindQueue(presentation.queue.Get());
+    presentation.stateQueueBound=false;
     presentation.queue.Reset();presentation.states.reset();presentation.memory.reset();
     presentation.width = 0;
     presentation.height = 0;
@@ -938,6 +968,7 @@ void ReleaseD3D12Presentation(D3D12Presentation& presentation) noexcept
     presentation.occluded = false;
     presentation.timingEnabled=false;presentation.timestampFrequency=0;presentation.cpuProfiler=nullptr;
     presentation.timings.clear();presentation.droppedTimingSamples=0;
+    LogCheckpoint("GPU.Release.End");
 }
 
 bool WaitD3D12Submission(D3D12Presentation& p,UINT64 fence,const Localization& text,D3D12WaitReason reason)

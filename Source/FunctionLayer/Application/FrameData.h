@@ -54,6 +54,10 @@ struct FrameData
     // 本帧借用的编辑器图像（资产缩略图等）；token 由宿主分配，宿主保证像素存活到本帧结束。
     std::vector<UiImageSource> editorUiImages;
     bool editorGuiEnabled=false;
+    bool editorSkyEnabled=true; // 编辑器显示选项，不改变场景光照或运行世界。
+    bool editorGridEnabled=false; // Y=0 的固定世界单位程序化网格。
+    std::vector<rhi::SceneLine> editorSceneLines;
+    StableEntityId editorSelected=0; // 仅编辑模式的可见模型轮廓。
     GuiGeometry editorGui; // Tool 完整复制后的自有数据，Function 不解释 ImGui。
     std::optional<CameraSnapshot> editorCamera; // 当前布局尺寸下的独立编辑镜头，Play 留空。
     std::optional<MaterialPreview> materialPreview;

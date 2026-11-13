@@ -6,7 +6,7 @@
 #include <cmath>
 #include <cstring>
 
-bool CreateD3D12GuiTarget(D3D12Presentation& p,const se::rhi::RenderTargetDescription& d,D3D12GuiTarget& out,const Localization& text)
+bool CreateD3D12GuiTarget(D3D12Presentation& p,const se::rhi::RenderTargetDescription& d,D3D12GuiTarget& out,const Localization& text,const se::Vec4* optimizedClear)
 {
     Microsoft::WRL::ComPtr<ID3D12Device> device;
     if(FAILED(p.queue->GetDevice(IID_PPV_ARGS(device.GetAddressOf()))))return false;
@@ -15,7 +15,9 @@ bool CreateD3D12GuiTarget(D3D12Presentation& p,const se::rhi::RenderTargetDescri
     D3D12_RESOURCE_DESC desc{};desc.Dimension=D3D12_RESOURCE_DIMENSION_TEXTURE2D;desc.Width=d.width;desc.Height=d.height;
     desc.DepthOrArraySize=desc.MipLevels=1;desc.SampleDesc={1,0};desc.Format=colorFormat;desc.Flags=D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
     D3D12_CLEAR_VALUE clear{};clear.Format=hdr?DXGI_FORMAT_R16G16B16A16_FLOAT:d.srgb?DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:DXGI_FORMAT_R8G8B8A8_UNORM;clear.Color[3]=1;
-    clear.Color[0]=d.srgb?0.015f:hdr?0.08f:0.08f;clear.Color[1]=d.srgb?0.015f:0.18f;clear.Color[2]=d.srgb?0.02f:0.32f;
+    // 前向 HDR 实际清为黑色；GUI 合成和普通 LDR 保留各自默认清屏色。
+    clear.Color[0]=hdr?0:d.srgb?0.015f:0.08f;clear.Color[1]=hdr?0:d.srgb?0.015f:0.18f;clear.Color[2]=hdr?0:d.srgb?0.02f:0.32f;
+    if(optimizedClear){clear.Color[0]=optimizedClear->x;clear.Color[1]=optimizedClear->y;clear.Color[2]=optimizedClear->z;clear.Color[3]=optimizedClear->w;}
     if(!CheckGraphicsResult(p.memory->Create(desc,D3D12_RESOURCE_STATE_RENDER_TARGET,&clear,out.color.resource,"GuiTarget"),text,"D3D12.GuiFailed")
         ||!CheckGraphicsResult(p.srvPool->Allocate(2,out.color.views),text,"D3D12.DescriptorCapacityExceeded")
         ||!CheckGraphicsResult(p.rtvPool->Allocate(1,out.rtv),text,"D3D12.DescriptorCapacityExceeded"))return false;

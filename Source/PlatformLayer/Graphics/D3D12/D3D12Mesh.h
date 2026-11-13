@@ -50,6 +50,7 @@ struct D3D12MeshDraw
     bool hasPreviousWorld=false;
     se::Mat4 previousWorld;
     bool compressedVertices=false;
+    bool outline=false;
 };
 
 bool InitializeD3D12MeshPipeline(D3D12MeshPipeline& pipeline,const D3D12Context& context,

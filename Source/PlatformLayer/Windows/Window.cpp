@@ -1,5 +1,7 @@
 #include "Window.h"
+#include "AppBranding.h"
 #include "WindowsInput.h"
+#include <imm.h>
 #include "CoreLayer/Log.h"
 #include <exception>
 #include <iostream>
@@ -192,7 +194,7 @@ bool CreateEngineWindow(WindowState& window, bool showWindow)
 	window.hwnd = CreateWindowExW(
 		0,                              // 暂不使用扩展样式
 		windowClassName,                // 使用刚才注册的窗口类
-		L"SelfEngine - T04",             // 窗口标题
+		L"Flare Engine",                  // 语言表加载前的品牌回退。
 		WS_OVERLAPPEDWINDOW,             // 带标题栏、边框和窗口按钮
 		initialX, initialY,              // 生产为系统默认；测试可屏外
 		1280, 720,                      // 窗口整体宽度和高度
@@ -220,6 +222,7 @@ bool CreateEngineWindow(WindowState& window, bool showWindow)
 	window.width = static_cast<UINT>(client.right - client.left);
 	window.height = static_cast<UINT>(client.bottom - client.top);
 	window.drawable = window.width > 0 && window.height > 0;
+	se::ApplyAppIcon(window.hwnd);
 	if (showWindow) ShowWindow(window.hwnd, SW_SHOW);
 	return true;
 }
@@ -229,7 +232,8 @@ bool SetEngineWindowClientSize(WindowState& window,UINT width,UINT height)
     if(!window.hwnd||!width||!height||width>16384||height>16384)return false;
     const auto style=static_cast<DWORD>(GetWindowLongPtrW(window.hwnd,GWL_STYLE)),extended=static_cast<DWORD>(GetWindowLongPtrW(window.hwnd,GWL_EXSTYLE));
     RECT size{0,0,LONG(width),LONG(height)};
-    if(!AdjustWindowRectEx(&size,style,GetMenu(window.hwnd)!=nullptr,extended)
+    const UINT dpi=GetDpiForWindow(window.hwnd);
+    if(!AdjustWindowRectExForDpi(&size,style,GetMenu(window.hwnd)!=nullptr,extended,dpi?dpi:96)
         ||!SetWindowPos(window.hwnd,nullptr,0,0,size.right-size.left,size.bottom-size.top,SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE))return false;
     RECT actual{};return GetClientRect(window.hwnd,&actual)&&actual.right-actual.left==LONG(width)&&actual.bottom-actual.top==LONG(height);
 }
@@ -257,8 +261,28 @@ bool PumpWindowMessages(int& exitCode)
             exitCode = static_cast<int>(message.wParam);
             return false;
         }
-        TranslateMessage(&message);
+        const bool imeKey=message.message==WM_KEYDOWN&&message.wParam==VK_PROCESSKEY;
+        const HANDLE previous=imeKey?GetPropW(message.hwnd,WindowsImeVirtualKeyProperty):nullptr;
+        if(imeKey)
+        {
+            const UINT original=ImmGetVirtualKey(message.hwnd);
+            if(original&&original!=VK_PROCESSKEY)
+                SetPropW(message.hwnd,WindowsImeVirtualKeyProperty,reinterpret_cast<HANDLE>(static_cast<UINT_PTR>(original)));
+        }
+        const bool shortcutIme=imeKey&&reinterpret_cast<UINT_PTR>(GetPropW(message.hwnd,WindowsTextInputModeProperty))==1;
+        if(shortcutIme)
+        {
+            // 场景快捷键不产生拼音候选，也不把导航字母留到下一次文本编辑。
+            if(HIMC context=ImmGetContext(message.hwnd))
+            {ImmNotifyIME(context,NI_COMPOSITIONSTR,CPS_CANCEL,0);ImmReleaseContext(message.hwnd,context);}
+        }
+        else TranslateMessage(&message);
         DispatchMessageW(&message);
+        if(imeKey)
+        {
+            if(previous)SetPropW(message.hwnd,WindowsImeVirtualKeyProperty,previous);
+            else RemovePropW(message.hwnd,WindowsImeVirtualKeyProperty);
+        }
     }
     return true;
 }

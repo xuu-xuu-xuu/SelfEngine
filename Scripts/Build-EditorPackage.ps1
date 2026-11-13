@@ -1,4 +1,4 @@
-﻿param(
+param(
     [ValidateSet('Debug','Release')][string]$Configuration='Release',
     [string]$Name='',
     [string]$OutputDirectory='',
@@ -15,9 +15,9 @@ Set-Location -LiteralPath $root
 if($Configuration -ne 'Release'){throw 'Export.PackageRequiresRelease'}
 $config=$Configuration.ToLowerInvariant()
 $native=Join-Path $root ('out/build/windows-x64-'+$config)
-$executable=Join-Path $native 'SelfEngineEditor.exe'
-if(!(Test-Path -LiteralPath $executable)){throw ('SelfEngineEditor.exe is missing; build the '+$Configuration+' preset first: '+$executable)}
-if(!$Name){$Name='SelfEngineEditor-'+(Get-Date -Format 'yyyyMMdd-HHmmss')}
+$executable=Join-Path $native 'FlareEditor.exe'
+if(!(Test-Path -LiteralPath $executable)){throw ('FlareEditor.exe is missing; build the '+$Configuration+' preset first: '+$executable)}
+if(!$Name){$Name='FlareEditor-'+(Get-Date -Format 'yyyyMMdd-HHmmss')}
 if($Name -notmatch '^[A-Za-z0-9_-]+$'){throw 'Package name must use letters, digits, underscore or hyphen.'}
 $outputRoot=if($OutputDirectory){[IO.Path]::GetFullPath($OutputDirectory)}else{Join-Path $root 'out/packages'}
 New-Item -ItemType Directory -Path $outputRoot -Force | Out-Null
@@ -44,6 +44,8 @@ try {
     $lease=Open-EngineBuildLease $root
     $sourceIdentity=Get-EngineSourceIdentity $root
     AddStep 'copy_editor'
+    CopyFile $executable (Join-Path $stage 'FlareEditor.exe')
+    CopyFile $executable (Join-Path $stage 'GearEditor.exe')
     CopyFile $executable (Join-Path $stage 'SelfEngineEditor.exe')
     AddStep 'copy_resources'
     CopyTree (Join-Path $native 'Resources') (Join-Path $stage 'Resources')
@@ -126,7 +128,7 @@ try {
         $legacy=Join-Path $template $legacyName
         if(Test-Path -LiteralPath $legacy){Remove-Item -LiteralPath $legacy}
     }
-    [IO.File]::WriteAllText((Join-Path $template 'README.md'),"# 空游戏模板`n`n从 SelfEngine 编辑器打开 project.json，编辑后在构建与导出面板生成游戏。`n未修改的示例行为可直接使用随包预编译版本；修改 Scripts 后需要 .NET 10 SDK。`n",[Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText((Join-Path $template 'README.md'),"# 空游戏模板`n`n从 Flare 引擎打开 project.json，编辑后在构建与导出面板生成游戏。`n未修改的示例行为可直接使用随包预编译版本；修改 Scripts 后需要 .NET 10 SDK。`n",[Text.UTF8Encoding]::new($false))
     $dotnet=(Get-Command dotnet.exe -ErrorAction Stop).Source
     $scriptProperties=Get-EnginePackageScriptProperties $stage (Join-Path $evidence 'template-obj')
     RunStep 'restore_template_scripts' $dotnet (@('restore',$scriptProject,'--runtime','win-x64','--configfile',(Join-Path $root 'NuGet.Config'),'--packages',(Join-Path $root 'out/nuget/packages'),'-p:Configuration=Release','-p:SelfContained=false','--nologo')+$scriptProperties)
@@ -171,7 +173,7 @@ try {
     $startScript=@'
 param([string]$Project='',[ValidateSet('zh-CN','en-US')][string]$Language='zh-CN',[switch]$SafeMode)
 $ErrorActionPreference='Stop'
-$executable=Join-Path $PSScriptRoot 'SelfEngineEditor.exe'
+$executable=Join-Path $PSScriptRoot 'FlareEditor.exe'
 $arguments=@('--language',$Language)
 if($Project){$arguments=@('--project',$Project)+$arguments}
 if($SafeMode){$arguments+='--safe-mode'}
@@ -186,7 +188,7 @@ exit $LASTEXITCODE
     $absolute=@(Get-ChildItem -LiteralPath $stage -File -Recurse | Where-Object {$_.Extension -in '.txt','.ps1','.json','.md','.cfg'} | Select-String -Pattern ([regex]::Escape($root)) -List)
     if($absolute.Count){throw ('Package text contains an absolute workspace path: '+$absolute[0].Path)}
     AddStep 'startup_check'
-    $start=Start-Process -FilePath (Join-Path $stage 'SelfEngineEditor.exe') -ArgumentList @('--smoke-launcher','400','--no-ui-errors') -WorkingDirectory $env:TEMP -PassThru -Wait -WindowStyle Hidden
+    $start=Start-Process -FilePath (Join-Path $stage 'FlareEditor.exe') -ArgumentList @('--smoke-launcher','400','--no-ui-errors') -WorkingDirectory $env:TEMP -PassThru -Wait -WindowStyle Hidden
     if($start.ExitCode -ne 0){throw ('Package startup check failed with exit code '+$start.ExitCode)}
     AddStep 'write_manifest'
     $finalSource=Get-EngineSourceIdentity $root

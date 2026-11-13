@@ -13,7 +13,9 @@ float4 PSMain(float4 position:SV_POSITION):SV_TARGET
 {
     const float2 ndc=float2(position.x/max(parameters.x,1.0)*2.0-1.0,
         1.0-position.y/max(parameters.w,1.0)*2.0);
-    float3 direction=normalize(mul(skyFromClip,float4(ndc,1.0,1.0)).xyz);
+    float4 farPoint=mul(skyFromClip,float4(ndc,1.0,1.0));
+    float4 nearPoint=mul(skyFromClip,float4(ndc,0.0,1.0));
+    float3 direction=normalize(farPoint.xyz*nearPoint.w-nearPoint.xyz*farPoint.w);
     float3 sky=direction.y>=0.0
         ?lerp(horizonColor.rgb,zenithColor.rgb,pow(saturate(direction.y),0.55))
         :lerp(horizonColor.rgb,groundColor.rgb,pow(saturate(-direction.y),0.35));

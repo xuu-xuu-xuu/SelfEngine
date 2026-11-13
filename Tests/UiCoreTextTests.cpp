@@ -202,6 +202,34 @@ void FontAtlasRevision()
     Check(second > first, "font atlas revision must change after new glyphs");
 }
 
+void PhysicalRasterScale()
+{
+    UiDirectWriteTextService service;
+    const std::string text="Editor 属性";
+    const auto original=service.Measure(text,14.0f,500.0f,false);
+    const auto caret=service.CaretRect(text,14.0f,500.0f,false,3);
+    for(const float scale:{1.0f,1.25f,1.5f,2.0f})
+    {
+        Check(service.SetRasterScale(scale),"set physical raster density");
+        const auto measured=service.Measure(text,14.0f,500.0f,false);
+        Near(measured.width,original.width,0.01f,"DPI cannot change logical text width");
+        Near(measured.height,original.height,0.01f,"DPI cannot change logical line height");
+        Near(service.CaretRect(text,14.0f,500.0f,false,3).x,caret.x,0.01f,"DPI preserves caret position");
+        std::vector<ui::UiGlyphQuad> glyphs;
+        Check(service.LayoutGlyphs(text,14.0f,500.0f,false,glyphs) && !glyphs.empty(),"physical glyph layout");
+        std::vector<unsigned char> rgba;int width=0,height=0;std::uint64_t revision=0;
+        Check(service.FontAtlas(rgba,width,height,revision),"physical atlas");
+        for(const auto& glyph:glyphs)
+        {
+            Near((glyph.u1-glyph.u0)*width,glyph.width*scale,0.01f,"one texture texel per physical glyph pixel");
+            Near((glyph.v1-glyph.v0)*height,glyph.height*scale,0.01f,"physical glyph height is not upscaled");
+        }
+    }
+    const auto entries=service.Stats().entries;
+    Check(service.SetRasterScale(2.0f) && service.Stats().entries==entries,"unchanged DPI retains the layout cache");
+    Check(!service.SetRasterScale(0.0f),"invalid raster scale rejected");
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -214,6 +242,7 @@ int main(int argc, char** argv)
         LayoutIntegration();
         ImeTypes();
         FontAtlasRevision();
+        PhysicalRasterScale();
 
         if (argc > 1)
         {

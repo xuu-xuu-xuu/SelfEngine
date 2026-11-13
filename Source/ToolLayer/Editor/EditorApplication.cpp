@@ -1,5 +1,10 @@
 #include "EditorApplication.h"
+#include "EditorFloatingWindows.h"
+#include "EditorWindowStyle.h"
 #include "ImGuiEditor.h"
+#include "AssetImportService.h"
+#include "EditorAssetActions.h"
+#include <future>
 #include "FunctionLayer/Rendering/UiPaint.h"
 #include "ToolLayer/Editor/EditorUi/EditorInputAdapter.h"
 #include "ToolLayer/Editor/EditorUi/EditorViewportMath.h"
@@ -21,15 +26,18 @@
 #include "EditorPlayInput.h"
 #include "ImGuiGeometry.h"
 #include "EditorViewportCamera.h"
+#include "EditorViewportController.h"
 #include "FunctionLayer/Application/FrameData.h"
 #include "FunctionLayer/Application/SandboxApp.h"
 #include "PlatformLayer/Windows/ExecutablePath.h"
 #include "CoreLayer/Log.h"
+#include "PlatformLayer/Windows/StartupProgress.h"
 #include "FunctionLayer/Rendering/Renderer.h"
 #include "ResourceLayer/Assets/AssetIO.h"
 #include <cmath>
 #include <chrono>
 #include <fstream>
+#include <iostream>
 #include <iterator>
 #include <memory>
 #include <sstream>
@@ -217,8 +225,7 @@ int RunEditorApp(Renderer& renderer,const std::string& locale,const std::filesys
         const bool toolkit=hooks&&hooks->editorUi=="toolkit";
         std::unique_ptr<EditorShell> toolkitShell;
         std::unique_ptr<EditorInputAdapter> toolkitInput;
-        bool toolkitNavigating=false;
-        float toolkitLastX=0.0f,toolkitLastY=0.0f;
+        std::unique_ptr<EditorFloatingWindows> floatingWindows;
         bool toolkitGameplayLogged=false;
         std::optional<CameraSnapshot> toolkitCamera;
         ui::UiRect toolkitViewportRect;
@@ -247,6 +254,14 @@ int RunEditorApp(Renderer& renderer,const std::string& locale,const std::filesys
         std::unordered_map<std::string,ui::UiImageInfo> toolkitImageInfos;
         ExternalChangeMonitor toolkitExternalChange;
         std::string toolkitPendingAsset;
+        struct ToolkitImportResult
+        {
+            bool success=false;
+            std::string key,detail;
+            std::filesystem::path primary;
+        };
+        std::future<ToolkitImportResult> toolkitImportTask;
+        std::string toolkitImportStatus;
         std::filesystem::path toolkitUiPath;
         std::function<bool()> toolkitExportAction;
         bool toolkitProjectDirty=false, toolkitBuildDirty=false, toolkitUiDirty=false;
@@ -287,6 +302,7 @@ int RunEditorApp(Renderer& renderer,const std::string& locale,const std::filesys
             assetsRoot=project.contentRoot;
         }
         AssetStore assets(assetsRoot,root/"out"/"Cache"/"Assets");
+        if(!ReportStartup(StartupStage::Assets))return 1;
         std::vector<AssetDiagnostic> diagnostics;
         if(!assets.Scan(diagnostics))
         {
@@ -307,6 +323,7 @@ int RunEditorApp(Renderer& renderer,const std::string& locale,const std::filesys
         std::unique_ptr<EditorPlayInput> playInput;
         // guard 在 ui 之后析构之前执行，确保脚本停止回调可继续访问实际运行 UI。
         struct PlayLifetime { EditorSession& session; ~PlayLifetime(){session.StopPlay();session.SetPlayCallbacks({},{});} } playLifetime{session};
+        if(!ReportStartup(StartupStage::Scene))return 1;
         if(hooks&&hooks->initialize&&!hooks->initialize(session,ui))return 1;
         // 产品入口由 EditorWorker 负责缺失/空场景的内存默认；测试夹具可继续使用空会话。
         // 没有显式场景参数时，恢复上次会话的活动场景；缺失文件只警告，不创建空文件。
@@ -337,6 +354,7 @@ int RunEditorApp(Renderer& renderer,const std::string& locale,const std::filesys
         frontend.SetDockLayoutPath(safeMode?std::filesystem::path{}:crashGuard.directory/"editor-dock.ini");
         frontend.SetUiScale(preferences.uiScale);
         EditorViewportCamera editorCamera;
+        EditorViewportController viewportController(editorCamera);
         if(hasRestoredSession)
         {
             if(std::isfinite(restoredSession.cameraX)&&std::isfinite(restoredSession.cameraY)&&std::isfinite(restoredSession.cameraZ)
@@ -393,10 +411,13 @@ int RunEditorApp(Renderer& renderer,const std::string& locale,const std::filesys
         services.initialWidth=1280;services.initialHeight=760;
         // 不设置 services.ui：设计用 UI 文档由 ImGui 画布编辑，不重复路由到游戏 UI。
         services.windowOpened=[&](HWND window){
+            if(!ReportStartup(StartupStage::Interface))return false;
+            SetWindowTextW(window,asset_io::FromUtf8(text.GetText("Editor.WindowTitle")).c_str());
+            flare::StyleTitleBar(window);
             hostWindow=window;
             if(toolkit)
             {
-                toolkitText=std::make_unique<UiDirectWriteTextService>();
+                toolkitText=std::make_unique<UiDirectWriteTextService>(L"Segoe UI");
                 toolkitShell=std::make_unique<EditorShell>(toolkitText.get());
                 toolkitShell->SetLocalization(&text);
                 if(!toolkitShell->Initialize(1280.0f,760.0f))
@@ -550,40 +571,59 @@ int RunEditorApp(Renderer& renderer,const std::string& locale,const std::filesys
                         Log(LogLevel::Warning,"EditorUi.ToolkitMaterial: failed "+materialError);
                     }
                 });
-                const auto toolkitImport=[&assets](){
-                    wchar_t file[MAX_PATH]{};
-                    OPENFILENAMEW dialog{};dialog.lStructSize=sizeof(dialog);dialog.hwndOwner=GetActiveWindow();
-                    dialog.lpstrFilter=L"Assets\0*.*\0";dialog.lpstrFile=file;dialog.nMaxFile=MAX_PATH;
-                    const std::wstring initial=assets.SourceRoot().wstring();dialog.lpstrInitialDir=initial.c_str();
-                    dialog.Flags=OFN_FILEMUSTEXIST|OFN_PATHMUSTEXIST;
-                    if(!GetOpenFileNameW(&dialog))return;
-                    AssetId id;std::vector<AssetDiagnostic> diagnostics;ImportOptions options;
-                    if(assets.RegisterSource(file,options,id,diagnostics))Log(LogLevel::Info,"EditorUi.ToolkitImported: "+id);
-                    else Log(LogLevel::Warning,"EditorUi.ToolkitImportFailed");
-                };
-                toolkitShell->SetAssetImportHandler(toolkitImport);
-                toolkitShell->SetGizmoDragHandler([&session,&toolkitCamera,&toolkitViewportRect](int axis,float dx,float dy){
-                    if(session.IsPlaying()||!toolkitCamera)return;
-                    const StableEntityId selected=session.Selected();
-                    const Transform* current=session.EditWorld().GetTransform(session.EditWorld().FindByStableId(selected));
-                    if(!current)return;
-                    const auto project=[&](Vec3 point)->std::optional<Vec2>{
-                        const Vec4 clip=toolkitCamera->viewProjection*Vec4{point.x,point.y,point.z,1.0f};
-                        if(clip.w<=0.0f)return std::nullopt;
-                        return Vec2{toolkitViewportRect.x+(clip.x/clip.w*0.5f+0.5f)*toolkitViewportRect.width,
-                                    toolkitViewportRect.y+(1.0f-(clip.y/clip.w*0.5f+0.5f))*toolkitViewportRect.height};
+                const auto toolkitImport=[&](){
+                    const auto report=[&](const char* key,const std::string& detail={}){
+                        toolkitImportStatus=text.GetText(key)+(detail.empty()?std::string{}:": "+detail);
+                        toolkitShell->SetStatus(toolkitImportStatus);
+                        toolkitShell->SetAssetsPreviewText(toolkitImportStatus);
+                        toolkitShell->AppendConsoleLine(toolkitImportStatus);
                     };
-                    const Vec3 direction=axis==0?Vec3{1.0f,0.0f,0.0f}:axis==1?Vec3{0.0f,1.0f,0.0f}:Vec3{0.0f,0.0f,1.0f};
-                    const auto start=project(current->position);
-                    const auto end=project(current->position+direction);
-                    if(!start||!end)return;
-                    const float axisX=end->x-start->x,axisY=end->y-start->y;
-                    const float lengthSquared=axisX*axisX+axisY*axisY;
-                    if(lengthSquared<1e-4f)return;
-                    const float worldDelta=(dx*axisX+dy*axisY)/lengthSquared;
-                    Transform next=*current;next.position=next.position+direction*worldDelta;
-                    session.Apply("Gizmo",[selected,next](World& world){return world.SetTransform(world.FindByStableId(selected),next);});
-                });
+                    if(toolkitImportTask.valid()||frontend.AssetOperationBusy()||frontend.ExportBusy())
+                    {report("Editor.AssetOperationBusy");return false;}
+                    if(session.IsPlaying()){report("Editor.EditWhilePlaying");return false;}
+                    std::filesystem::path source;
+                    if(hooks&&hooks->chooseAssetImportSource)source=hooks->chooseAssetImportSource();
+                    else
+                    {
+                        wchar_t file[32768]{};
+                        OPENFILENAMEW dialog{};dialog.lStructSize=sizeof(dialog);dialog.hwndOwner=hostWindow;
+                        dialog.lpstrFilter=L"Assets\0*.fbx;*.gltf;*.glb;*.png;*.jpg;*.jpeg;*.material.json;*.sebin\0All files\0*.*\0";
+                        dialog.lpstrFile=file;dialog.nMaxFile=static_cast<DWORD>(std::size(file));
+                        const std::wstring initial=assets.SourceRoot().wstring();dialog.lpstrInitialDir=initial.c_str();
+                        dialog.Flags=OFN_FILEMUSTEXIST|OFN_PATHMUSTEXIST|OFN_NOCHANGEDIR;
+                        if(!GetOpenFileNameW(&dialog))
+                        {
+                            const DWORD error=CommDlgExtendedError();
+                            if(error)report("Editor.AssetImportFailed",std::to_string(error));
+                            return false;
+                        }
+                        source=file;
+                    }
+                    if(source.empty())return false;
+                    report("Editor.AssetImporting",asset_io::Utf8(source.filename()));
+                    const AssetImportRequest request{{source},assets.SourceRoot(),{}};
+                    // 工作线程只使用自有 Store；实时索引和 UI 在完成后由主线程更新。
+                    toolkitImportTask=std::async(std::launch::async,[request,cache=root/"out"/"Cache"/"Assets"]{
+                        ToolkitImportResult result;
+                        const auto plan=AssetImportService::Plan(request);
+                        if(!plan.valid)
+                        {
+                            result.key=plan.errorKey;result.detail=plan.detail;
+                            if(!plan.diagnostics.empty())
+                            {result.key=plan.diagnostics.front().key;result.detail=plan.diagnostics.front().detail;}
+                            return result;
+                        }
+                        for(const auto& file:plan.files)if(file.primary){result.primary=file.target;break;}
+                        AssetStore worker(plan.contentRoot,cache);
+                        std::vector<AssetId> imported;
+                        result.success=AssetImportService::ExecuteRegistered(plan,worker,imported,result.key,result.detail);
+                        if(result.success)result.detail=std::to_string(imported.size())+" | "+asset_io::Utf8(result.primary);
+                        return result;
+                    });
+                    return true;
+                };
+                toolkitShell->SetAssetImportHandler([toolkitImport](){toolkitImport();});
+                toolkitShell->SetViewportActionHandler([&](std::string_view action){viewportController.Action(action,session,assets);});
                 toolkitShell->SetReparentHandler([&session](std::uint64_t id,std::uint64_t parent){
                     if(!session.BeginEdit("Reparent"))return false;
                     if(!session.SetParent(id,parent)){session.CancelEdit();return false;}
@@ -721,7 +761,7 @@ int RunEditorApp(Renderer& renderer,const std::string& locale,const std::filesys
                         }
                         wchar_t file[MAX_PATH]{};
                         OPENFILENAMEW dialog{};dialog.lStructSize=sizeof(dialog);dialog.hwndOwner=GetActiveWindow();
-                        dialog.lpstrFilter=L"SelfEngine Scene\0*.scene.json\0All Files\0*.*\0";
+                        dialog.lpstrFilter=L"Flare Scene\0*.scene.json\0All Files\0*.*\0";
                         dialog.lpstrFile=file;dialog.nMaxFile=MAX_PATH;dialog.lpstrDefExt=L"scene.json";
                         dialog.Flags=OFN_FILEMUSTEXIST|OFN_PATHMUSTEXIST;
                         if(!GetOpenFileNameW(&dialog))return true;
@@ -745,7 +785,7 @@ int RunEditorApp(Renderer& renderer,const std::string& locale,const std::filesys
                     commands.Register(EditorCommandId::SaveAs,[&session,&toolkitShell,&toolkitExternalChange](const EditorCommand&){
                         wchar_t file[MAX_PATH]{};
                         OPENFILENAMEW dialog{};dialog.lStructSize=sizeof(dialog);dialog.hwndOwner=GetActiveWindow();
-                        dialog.lpstrFilter=L"SelfEngine Scene\0*.scene.json\0All Files\0*.*\0";
+                        dialog.lpstrFilter=L"Flare Scene\0*.scene.json\0All Files\0*.*\0";
                         dialog.lpstrFile=file;dialog.nMaxFile=MAX_PATH;dialog.lpstrDefExt=L"scene.json";
                         if(!session.Path().empty())wcsncpy_s(file,session.Path().c_str(),_TRUNCATE);
                         dialog.Flags=OFN_OVERWRITEPROMPT|OFN_PATHMUSTEXIST;
@@ -818,8 +858,9 @@ int RunEditorApp(Renderer& renderer,const std::string& locale,const std::filesys
                     });
                     commands.Register(EditorCommandId::Undo,[&session](const EditorCommand&){return session.Undo();});
                     commands.Register(EditorCommandId::Redo,[&session](const EditorCommand&){return session.Redo();});
-                    commands.Register(EditorCommandId::Play,[&session,&toolkitGameplayLogged](const EditorCommand&){
+                    commands.Register(EditorCommandId::Play,[&session,&toolkitGameplayLogged,&toolkitImportTask](const EditorCommand&){
                         if(session.IsPlaying()){session.StopPlay();Log(LogLevel::Info,"EditorUi.ToolkitPlay: stop");return true;}
+                        if(toolkitImportTask.valid())return false;
                         std::string reason;
                         if(!session.ValidatePlay(reason)){Log(LogLevel::Warning,"EditorUi.ToolkitPlay: "+reason);return false;}
                         if(!session.StartPlay()){Log(LogLevel::Warning,"EditorUi.ToolkitPlay: "+session.LastError());return false;}
@@ -847,7 +888,7 @@ int RunEditorApp(Renderer& renderer,const std::string& locale,const std::filesys
                     commands.Register(EditorCommandId::Duplicate,[&session](const EditorCommand&){
                         return session.Selected()&&session.Duplicate(session.Selected())!=0;
                     });
-                    commands.Register(EditorCommandId::Import,[toolkitImport](const EditorCommand&){toolkitImport();return true;});
+                    commands.Register(EditorCommandId::Import,[toolkitImport](const EditorCommand&){return toolkitImport();});
                     commands.Register(EditorCommandId::Rename,[&toolkitShell](const EditorCommand&){
                         return toolkitShell&&toolkitShell->BeginRename();
                     });
@@ -1043,6 +1084,8 @@ int RunEditorApp(Renderer& renderer,const std::string& locale,const std::filesys
                 }
                 toolkitInput=std::make_unique<EditorInputAdapter>(uiScale);
                 toolkitInput->SetWindow(window);
+                floatingWindows=std::make_unique<EditorFloatingWindows>(window,*toolkitShell,text,resourceDirectory,
+                    [&](HWND target,UINT message,WPARAM w,LPARAM l){return services.messageHandler(target,message,w,l);},!hidden);
                 {
                     std::string recoveryError;
                     auto recoveryGroups=EditorSessionStore::ListRecoveryGroups(crashGuard.directory,root,recoveryError);
@@ -1082,13 +1125,15 @@ int RunEditorApp(Renderer& renderer,const std::string& locale,const std::filesys
         };
         services.windowClosing=[&]{
             playInput->Deactivate(hostWindow);
-            if(toolkit){Log(LogLevel::Info,"EditorUi.ToolkitClosing");toolkitNavigating=false;toolkitInput.reset();toolkitShell.reset();toolkitText.reset();toolkitFontPixels.clear();}
+            if(toolkit){Log(LogLevel::Info,"EditorUi.ToolkitClosing");viewportController.Blur(session);floatingWindows.reset();toolkitInput.reset();toolkitShell.reset();toolkitText.reset();toolkitFontPixels.clear();}
             else{frontend.CancelInteractions(session,&ui);platform.reset();}
             hostWindow=nullptr;
         };
         services.messageHandler=[&](HWND window,UINT message,WPARAM wParam,LPARAM lParam){
             if(toolkit)
             {
+                auto* windowInput=window==hostWindow?toolkitInput.get():(floatingWindows?floatingWindows->Input(window):nullptr);
+                if(message==WM_SYSKEYDOWN&&wParam==VK_F4)return std::optional<LRESULT>{};
                 if(message==WM_CLOSE)
                 {
                     // 自动化/隐藏运行没有可交互的模态，直接按宿主退出；交互窗口才走关闭保护。
@@ -1102,7 +1147,14 @@ int RunEditorApp(Renderer& renderer,const std::string& locale,const std::filesys
                 {
                     const UINT dpi=HIWORD(wParam);
                     Log(LogLevel::Info,"EditorUi.ToolkitDpi: "+std::to_string(dpi));
-                    if(toolkitInput&&dpi)toolkitInput->SetDpiScale(static_cast<float>(dpi)/96.0f);
+                    if(windowInput&&dpi)windowInput->SetDpiScale(static_cast<float>(dpi)/96.0f);
+                    if(lParam)
+                    {
+                        const auto& bounds=*reinterpret_cast<const RECT*>(lParam);
+                        SetWindowPos(window,nullptr,bounds.left,bounds.top,bounds.right-bounds.left,
+                            bounds.bottom-bounds.top,SWP_NOZORDER|SWP_NOACTIVATE);
+                    }
+                    return std::optional<LRESULT>{0};
                 }
                 if(message==WM_MOUSEWHEEL)
                 {
@@ -1110,40 +1162,76 @@ int RunEditorApp(Renderer& renderer,const std::string& locale,const std::filesys
                     ScreenToClient(window,&point);
                     lParam=MAKELPARAM(point.x,point.y);
                 }
-                ui::UiInputEvent event;
-                if(toolkitInput&&toolkitInput->Translate(message,wParam,lParam,event))
+                HWND targetWindow=window;
+                if(floatingWindows)
                 {
-                    if(toolkitShell&&event.type==ui::UiEventType::KeyDown&&
-                       toolkitShell->RouteShortcut(event,toolkitShell->TextFieldFocused()))
+                    targetWindow=floatingWindows->RoutePointer(window,message,lParam);
+                    floatingWindows->SelectSurface(targetWindow);
+                    if(targetWindow&&targetWindow!=window)
+                        windowInput=targetWindow==hostWindow?toolkitInput.get():floatingWindows->Input(targetWindow);
+                }
+                ui::UiInputEvent event;
+                if(windowInput&&toolkitShell)windowInput->SetTextInputActive(toolkitShell->TextFieldFocused());
+                if(windowInput&&windowInput->Translate(message,wParam,lParam,event))
+                {
+                    if(!toolkitShell)return std::optional<LRESULT>{};
+                    const bool lostFocus=event.type==ui::UiEventType::FocusLost;
+                    const bool lostCapture=event.type==ui::UiEventType::PointerCaptureLost;
+                    if(lostFocus||lostCapture)
                     {
-                        return std::optional<LRESULT>{0};
+                        // 主动松开捕获不等于失焦；保留视口焦点，随后 QWER 仍应切换工具。
+                        if(lostFocus||viewportController.Captured())viewportController.Blur(session);
+                        auto& dispatcher=toolkitShell->Dispatcher();
+                        event.target=dispatcher.PointerCapture();
+                        if(!event.target.IsValid())event.target=dispatcher.Focus();
+                        dispatcher.Dispatch(event);
+                        dispatcher.ReleasePointerCapture();
+                        if(lostFocus)dispatcher.ClearFocus();
+                        if(GetCapture()==window)ReleaseCapture();
+                        return std::optional<LRESULT>{};
                     }
-                    const ui::editor::ViewportRectF viewportMath{toolkitViewportRect.x,toolkitViewportRect.y,toolkitViewportRect.width,toolkitViewportRect.height};
-                    if(!session.IsPlaying()&&message==WM_LBUTTONDOWN&&toolkitCamera&&ui::editor::ViewportContains(viewportMath,event.x,event.y))
+                    const bool modal=toolkitShell->CloseModalOpen()||toolkitShell->ConfirmOpen()||toolkitShell->MenuOpen();
+                    const auto hit=ui::UiHitTest(toolkitShell->Document(),toolkitShell->Layout()).Hit(
+                        toolkitShell->CurrentInputRoot(),event.x,event.y).target;
+                    const bool onViewport=hit==toolkitShell->ViewportPanel();
+                    const bool key=event.type==ui::UiEventType::KeyDown||event.type==ui::UiEventType::KeyUp;
+                    const bool blocked=modal||(key&&toolkitShell->TextFieldFocused());
+                    if((key||event.type==ui::UiEventType::TextInput)&&GetEnvironmentVariableW(L"SELFENGINE_EDITOR_TRACE_VIEWPORT",nullptr,0))
                     {
-                        float u=0.0f,v=0.0f;ui::editor::ViewportNormalize(viewportMath,event.x,event.y,u,v);
-                        const StableEntityId picked=PickEditorBounds(session.EditWorld(),assets,*toolkitCamera,u,v);
-                        if(picked)
-                        {
-                            session.Select(picked);
-                            Log(LogLevel::Info,"EditorUi.ToolkitPick: "+std::to_string(picked));
-                            return std::optional<LRESULT>{0};
-                        }
+                        Log(LogLevel::Info,text.GetText("EditorUi.ViewportInputTrace")+": message="+std::to_string(message)
+                            +", raw="+std::to_string(wParam)+", key="+std::to_string(event.key)+", char="+std::to_string(event.codepoint)
+                            +", ctrl="+std::to_string(event.control)+", alt="+std::to_string(event.alt)+", blocked="+std::to_string(blocked));
+                        std::cout<<std::flush;
                     }
-                    if(message==WM_RBUTTONDOWN)
+                    if(blocked)viewportController.Blur(session);
+                    if(event.type==ui::UiEventType::PointerDown&&!viewportController.Captured())
                     {
-                        toolkitNavigating=true;toolkitLastX=event.x;toolkitLastY=event.y;
+                        if(!onViewport)viewportController.Blur(session);
+                        else if(!modal)toolkitShell->Dispatcher().ClearFocus();
                     }
-                    else if(message==WM_RBUTTONUP)
+                    bool handled=false;
+                    const bool captured=viewportController.Captured();
+                    if(!blocked&&(captured||key))handled=viewportController.Handle(event,session,assets,false);
+                    if(!handled&&!captured&&event.type==ui::UiEventType::KeyDown)
+                        handled=toolkitShell->RouteShortcut(event,blocked);
+                    if(!handled&&!captured)
                     {
-                        toolkitNavigating=false;
+                        toolkitShell->Dispatcher().Dispatch(event);
+                        if(!blocked&&!event.handled)handled=viewportController.Handle(event,session,assets,onViewport);
                     }
-                    else if(message==WM_MOUSEMOVE&&toolkitNavigating)
+                    if(event.type==ui::UiEventType::PointerDown&&GetEnvironmentVariableW(L"SELFENGINE_EDITOR_TRACE_VIEWPORT",nullptr,0))
                     {
-                        editorCamera.Update({{0.0f,0.0f,0.0f},{event.x-toolkitLastX,event.y-toolkitLastY},(GetKeyState(VK_SHIFT)&0x8000)!=0},0.016);
-                        toolkitLastX=event.x;toolkitLastY=event.y;
+                        const auto hitRect=toolkitShell->Layout().Rect(hit);
+                        Log(LogLevel::Info,text.GetText("EditorUi.ViewportInputTrace")+": x="+std::to_string(event.x)+", y="+std::to_string(event.y)
+                            +", viewport="+std::to_string(onViewport)+", blocked="+std::to_string(blocked)+", ui="+std::to_string(event.handled)
+                            +", hit="+std::to_string(hitRect.x)+","+std::to_string(hitRect.y)+","+std::to_string(hitRect.width)+","+std::to_string(hitRect.height)
+                            +", selected="+std::to_string(session.Selected())+", tool="+std::to_string(viewportController.Tool()));
                     }
-                    if(toolkitShell)toolkitShell->Dispatcher().Dispatch(event);
+                    const bool pointerCaptured=viewportController.Captured() ||
+                        toolkitShell->Dispatcher().PointerCapture().IsValid();
+                    if(pointerCaptured&&GetCapture()!=window)SetCapture(window);
+                    else if(!pointerCaptured&&GetCapture()==window)ReleaseCapture();
+                    windowInput->SetTextInputActive(toolkitShell->TextFieldFocused());
                     return std::optional<LRESULT>{0};
                 }
                 return std::optional<LRESULT>{};
@@ -1166,8 +1254,9 @@ int RunEditorApp(Renderer& renderer,const std::string& locale,const std::filesys
                 }
                 if(hooks&&hooks->input&&session.IsPlaying())
                 {
-                    InputState gameplay=input;
-                    const float dpi=toolkitInput?toolkitInput->DpiScale():1.0f;
+                    float dpi=toolkitInput?toolkitInput->DpiScale():1.0f;
+                    const auto* floatingInput=floatingWindows?floatingWindows->GameplayInput(dpi):nullptr;
+                    InputState gameplay=floatingInput?*floatingInput:input;
                     const ui::editor::ViewportRectF viewportMath{toolkitViewportRect.x,toolkitViewportRect.y,toolkitViewportRect.width,toolkitViewportRect.height};
                     float mouseX=static_cast<float>(gameplay.mouseX),mouseY=static_cast<float>(gameplay.mouseY);
                     ui::editor::ViewportOffsetPlayInput(viewportMath,dpi,mouseX,mouseY);
@@ -1182,6 +1271,13 @@ int RunEditorApp(Renderer& renderer,const std::string& locale,const std::filesys
             playInput->EndFrame();
         };
         services.runEnvironmentFrame=[&](double seconds){
+            if(toolkit)
+            {
+                viewportController.Update(seconds,session,assets);
+                const bool uiCaptured=toolkitShell&&toolkitShell->Dispatcher().PointerCapture().IsValid();
+                if(!viewportController.Captured()&&!uiCaptured&&
+                    (GetCapture()==hostWindow||(floatingWindows&&floatingWindows->Owns(GetCapture()))))ReleaseCapture();
+            }
             if(frontend.TimeOfDayPreview().Ready()&&!frontend.TimeOfDayPreview().Advance(seconds))return false;
             if(hooks&&hooks->frame&&!hooks->frame(session,seconds))return false;
             ui.Update(seconds);
@@ -1207,6 +1303,38 @@ int RunEditorApp(Renderer& renderer,const std::string& locale,const std::filesys
             {
                 if(!toolkitShell||!hostWindow)throw std::runtime_error("EditorUi.ToolkitNotReady");
                 if(hooks&&hooks->operationFrame)hooks->operationFrame(frontend,session);
+                if(toolkitImportTask.valid()&&toolkitImportTask.wait_for(std::chrono::seconds(0))==std::future_status::ready)
+                {
+                    ToolkitImportResult result;
+                    try{result=toolkitImportTask.get();}
+                    catch(const std::exception& failure){result.key="Editor.AssetImportFailed";result.detail=failure.what();}
+                    if(result.success)
+                    {
+                        std::vector<AssetDiagnostic> failures;
+                        if(!assets.Scan(failures))
+                        {
+                            result.success=false;result.key="Assets.ScanFailed";
+                            if(!failures.empty()){result.key=failures.front().key;result.detail=failures.front().detail;}
+                        }
+                        else
+                        {
+                            toolkitPendingAsset=asset_io::Utf8(result.primary);
+                            std::vector<EditorAssetIssue> issues;
+                            if(!EditorAssetActions::SyncProjectAssets(root,assets,issues))
+                                for(const auto& issue:issues)
+                                {
+                                    const auto message=text.GetText(issue.key)+": "+issue.detail;
+                                    toolkitShell->AppendConsoleLine(message);Log(LogLevel::Warning,message);
+                                }
+                        }
+                    }
+                    if(result.key.empty())result.key=result.success?"Editor.AssetImportSucceeded":"Editor.AssetImportFailed";
+                    toolkitImportStatus=text.GetText(result.key)+(result.detail.empty()?std::string{}:": "+result.detail);
+                    toolkitShell->SetAssetsPreviewText(toolkitImportStatus);
+                    toolkitShell->AppendConsoleLine(toolkitImportStatus);
+                    Log(result.success?LogLevel::Info:LogLevel::Warning,toolkitImportStatus);
+                    toolkitShell->FocusPanel(EditorPanelId::Assets);
+                }
                 if(smoke.Enabled())
                 {
                     // 两套壳共用同一个验收驱动；toolkit 必须执行自己的生产命令总线。
@@ -1252,6 +1380,14 @@ int RunEditorApp(Renderer& renderer,const std::string& locale,const std::filesys
                 const float dpi=toolkitInput?toolkitInput->DpiScale():1.0f;
                 toolkitShell->SetDpiScale(dpi);
                 toolkitShell->Resize(width,height);
+                if(floatingWindows&&!floatingWindows->Synchronize())throw std::runtime_error(text.GetText("EditorUi.FloatingWindowFailed"));
+                float framebufferScaleX=dpi,framebufferScaleY=dpi;
+                if(toolkitDpiOverride&&toolkitShell->Width()>0.0f&&toolkitShell->Height()>0.0f)
+                {
+                    framebufferScaleX=width/toolkitShell->Width();
+                    framebufferScaleY=height/toolkitShell->Height();
+                }
+                toolkitText->SetRasterScale(framebufferScaleY);
                 toolkitShell->Frame();
                 {
                     std::vector<ui::editor::EditorHierarchyNode> hierarchy;
@@ -1272,7 +1408,8 @@ int RunEditorApp(Renderer& renderer,const std::string& locale,const std::filesys
                         const std::filesystem::path resolved=assets.Resolve(id);
                         const std::string extension=resolved.extension().string();
                         std::string type="asset";
-                        if(extension==".png"||extension==".jpg"||extension==".jpeg"||extension==".tga")type="texture";
+                        if(extension==".fbx"||extension==".gltf"||extension==".glb")type="model";
+                        else if(extension==".png"||extension==".jpg"||extension==".jpeg"||extension==".tga")type="texture";
                         else if(extension==".hlsl"||extension==".hlsli")type="shader";
                         else if(extension==".json")type="data";
                         entries.push_back({asset_io::Utf8(resolved),type});
@@ -1356,12 +1493,15 @@ int RunEditorApp(Renderer& renderer,const std::string& locale,const std::filesys
                     if(focus.IsValid())
                     {
                         const ui::UiRect rect=toolkitShell->Layout().Rect(focus);
-                        toolkitInput->SetImeCandidateAnchor({rect.x,rect.y,rect.width,rect.height});
+                        const auto surface=toolkitShell->SurfaceForElement(focus);
+                        auto* input=surface&&floatingWindows?floatingWindows->Input(floatingWindows->Window(surface)):toolkitInput.get();
+                        if(input)input->SetImeCandidateAnchor({rect.x,rect.y,rect.width,rect.height});
                     }
                 }
                 toolkitShell->SetStatus(session.IsPlaying()
                     ?text.GetText(session.PlayPaused()?"EditorUi.Paused":"EditorUi.Running")
-                    :text.GetText("EditorUi.Ready"));
+                    :!toolkitImportStatus.empty()?toolkitImportStatus
+                    :text.GetText(viewportController.LastError().empty()?"EditorUi.Ready":viewportController.LastError()));
                 if(toolkitExternalChange.Path()!=session.Path())toolkitExternalChange.Reset(session.Path());
                 if(!toolkitShell->ConfirmOpen()&&toolkitExternalChange.Poll())
                 {
@@ -1433,29 +1573,35 @@ int RunEditorApp(Renderer& renderer,const std::string& locale,const std::filesys
                 }
                 if(toolkitShell->ConsumeCloseRequest())PostMessageW(hostWindow,WM_CLOSE,0,0);
                 BuildFrameData(session.IsPlaying()?*session.PlayWorld():session.EditWorld(),session.IsPlaying()?playUi.get():nullptr,nullptr,frame);
+                const ui::UiRect viewportRect=toolkitShell->Layout().Rect(toolkitShell->ViewportPanel());
+                viewportController.Prepare(session,assets,viewportRect,++editorFrame);
+                toolkitCamera=viewportController.Camera();toolkitViewportRect=viewportRect;
+                toolkitShell->SetViewportState(viewportController.Tool(),viewportController.Local(),viewportController.Center(),
+                    viewportController.Sky(),viewportController.Grid(),viewportController.Gizmos(),session.IsPlaying());
+                toolkitShell->Frame();
+
+                if(hooks&&hooks->toolkitDrawn)hooks->toolkitDrawn(*toolkitShell,session);
                 ui::UiDisplayList display;
                 ui::UiPaintStats paint;
                 ui::UiPainter painter(toolkitShell->Document(),toolkitShell->Layout());
                 if(!painter.Build(toolkitShell->Root(),display,paint))throw std::runtime_error("EditorUi.ToolkitPaintFailed");
+                // 在场景图像之后插入辅助绘制，后续菜单/模态仍覆盖它。
+                for(auto it=display.commands.begin();it!=display.commands.end();++it)
+                    if(it->kind==ui::UiPaintCommandKind::Image&&it->image=="scene")
+                    {display.commands.insert(it+1,viewportController.Overlay().commands.begin(),viewportController.Overlay().commands.end());break;}
                 GuiGeometry geometry;
                 ui::UiGeometryStats geometryStats;
                 std::vector<std::string> errors;
                 ui::UiGeometryOptions options;
                 options.whiteTexture=3;
                 options.fontPageBase=1;
+                options.textPixelScale={framebufferScaleX,framebufferScaleY};
                 options.whiteU=0.0f;options.whiteV=0.0f;options.whiteWidth=1.0f;options.whiteHeight=1.0f;
                 ToolkitSceneImageProvider imageProvider;imageProvider.images=toolkitImageInfos;
                 if(!ui::UiGeometryBuilder{}.Build(display,&toolkitShell->TextService(),&imageProvider,options,geometry,geometryStats,errors))
                     throw std::runtime_error("EditorUi.ToolkitGeometryFailed");
                 if(!toolkitText||!toolkitText->FontAtlas(toolkitFontPixels,toolkitFontWidth,toolkitFontHeight,toolkitFontRevision))
                     throw std::runtime_error("EditorUi.ToolkitFontAtlasFailed");
-                float framebufferScaleX=dpi,framebufferScaleY=dpi;
-                if(toolkitDpiOverride&&toolkitShell->Width()>0.0f&&toolkitShell->Height()>0.0f)
-                {
-                    // 测试覆盖只改逻辑布局，窗口物理尺寸没变；用实际比例保证 GUI 输出与目标纹理严格对齐。
-                    framebufferScaleX=width/toolkitShell->Width();
-                    framebufferScaleY=height/toolkitShell->Height();
-                }
                 geometry.framebufferScale={framebufferScaleX,framebufferScaleY};
                 frame.editorGui=std::move(geometry);
                 frame.editorGuiEnabled=true;
@@ -1468,13 +1614,13 @@ int RunEditorApp(Renderer& renderer,const std::string& locale,const std::filesys
                 frame.editorFontPixels=toolkitFontPixels.empty()?nullptr:toolkitFontPixels.data();
                 frame.editorFontWidth=toolkitFontWidth;frame.editorFontHeight=toolkitFontHeight;frame.editorFontToken=1;
                 frame.editorFontRevision=toolkitFontRevision;
-                const ui::UiRect viewportRect=toolkitShell->Layout().Rect(toolkitShell->ViewportPanel());
                 frame.assets=&assets;
-                frame.sceneViewport={viewportRect.x*dpi,viewportRect.y*dpi,viewportRect.width*dpi,viewportRect.height*dpi};
-                const CameraViewport area{viewportRect.x,viewportRect.y,viewportRect.width,viewportRect.height};
-                frame.editorCamera=SelectCamera(frame.cameras,area,++editorFrame).snapshot;
-                toolkitCamera=frame.editorCamera;
-                toolkitViewportRect=viewportRect;
+                frame.sceneViewport={viewportRect.x,viewportRect.y,viewportRect.width,viewportRect.height};
+                frame.editorCamera=viewportController.Camera();
+                frame.editorSkyEnabled=viewportController.Sky();
+                frame.editorGridEnabled=viewportController.Grid()&&!session.IsPlaying();
+                frame.editorSceneLines=viewportController.SceneLines();
+                frame.editorSelected=session.IsPlaying()?0:session.Selected();
                 {
                     static float loggedViewport[4]={-1.0f,-1.0f,-1.0f,-1.0f};
                     if(loggedViewport[0]!=viewportRect.x||loggedViewport[1]!=viewportRect.y||loggedViewport[2]!=viewportRect.width||loggedViewport[3]!=viewportRect.height)
@@ -1485,27 +1631,9 @@ int RunEditorApp(Renderer& renderer,const std::string& locale,const std::filesys
                     }
                 }
                 playInput->SetViewport(hostWindow,{viewportRect.x*dpi,viewportRect.y*dpi,viewportRect.width*dpi,viewportRect.height*dpi});
-                bool gizmoVisible=false;
-                if(toolkitCamera&&!session.IsPlaying())
-                {
-                    const StableEntityId selected=session.Selected();
-                    const Transform* transform=session.EditWorld().GetTransform(session.EditWorld().FindByStableId(selected));
-                    if(transform)
-                    {
-                        const Vec4 clip=toolkitCamera->viewProjection*Vec4{transform->position.x,transform->position.y,transform->position.z,1.0f};
-                        if(clip.w>0.0f)
-                        {
-                            const float ndcX=clip.x/clip.w,ndcY=clip.y/clip.w;
-                            const float sx=viewportRect.x+(ndcX*0.5f+0.5f)*viewportRect.width;
-                            const float sy=viewportRect.y+(1.0f-(ndcY*0.5f+0.5f))*viewportRect.height;
-                            if(ndcX>=-1.0f&&ndcX<=1.0f&&ndcY>=-1.0f&&ndcY<=1.0f)
-                            {
-                                toolkitShell->SetGizmo(sx,sy,true);gizmoVisible=true;
-                            }
-                        }
-                    }
-                }
-                if(!gizmoVisible)toolkitShell->SetGizmo(0.0f,0.0f,false);
+                if(floatingWindows&&hooks&&hooks->floatingDrawn)hooks->floatingDrawn(*floatingWindows,frame);
+                if(floatingWindows&&!floatingWindows->Render(frame,imageProvider,viewportController.Overlay()))
+                    throw std::runtime_error(text.GetText("EditorUi.FloatingRenderFailed"));
                 return;
             }
             if(!platform||!platform->PrepareFrame())throw std::runtime_error("EditorUi.PlatformInitFailed");

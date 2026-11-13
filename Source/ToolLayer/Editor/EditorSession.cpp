@@ -1,6 +1,7 @@
 #include "EditorSession.h"
 #include "FunctionLayer/Runtime/ComponentMetadata.h"
 #include "CoreLayer/Math/TransformDecomposition.h"
+#include "CoreLayer/Log.h"
 #include "ResourceLayer/Scenes/SceneSerializer.h"
 #include "SceneDefaults.h"
 #include "ResourceLayer/Assets/AssetIO.h"
@@ -286,6 +287,8 @@ bool EditorSession::ValidatePlay(std::string& reasonKey) const
 }
 bool EditorSession::StartPlay()
 {
+    LogCheckpoint("Play.Start.Begin");
+    struct PlayResult{EditorSession& session;~PlayResult(){LogCheckpoint("Play.Start.End","playing="+std::to_string(session.IsPlaying())+" error="+session.LastError());}} result{*this};
     if(play_||transaction_||startingPlay_||stoppingPlay_)return Fail("Editor.TransactionActive");
     bool callbackEntered=false;
     try
@@ -339,6 +342,7 @@ void EditorSession::StopPlay() noexcept
     if(!play_||stoppingPlay_)return;
     // 启动回调仍借用此 World，返回后才能执行停止回调与释放。
     if(startingPlay_||play_->IsRunningFrame()){stopPlayRequested_=true;return;}
+    LogCheckpoint("Play.Stop.Begin");
     stopPlayRequested_=false;
     stoppingPlay_=true;
     play_->BeginShutdown();
@@ -346,5 +350,6 @@ void EditorSession::StopPlay() noexcept
     try { if(playStopping_)playStopping_(play_->GetWorld()); } catch (...) { error_="Editor.PlayStopFailed"; }
     play_.reset();
     stoppingPlay_=false;
+    LogCheckpoint("Play.Stop.End");
 }
 }

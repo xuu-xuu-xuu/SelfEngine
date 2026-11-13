@@ -41,6 +41,7 @@ public:
     void SetCaptureOutput(std::filesystem::path path,std::uint64_t frame){captureOutput_=std::move(path);captureFrame_=frame;captured_=false;}
     bool CaptureSucceeded() const noexcept {return captureOutput_.empty()||captured_;}
     se::rhi::Statistics Statistics() const {return device_?device_->Stats():se::rhi::Statistics{};}
+    std::vector<std::string> DebugMessages()const{return device_?device_->DebugMessages():std::vector<std::string>{};}
     const se::RenderTelemetry& Telemetry() const noexcept {return telemetry_;}
     se::rhi::AdapterInformation Adapter() const {return device_?device_->Adapter():se::rhi::AdapterInformation{};}
     SandboxDrawStatistics DrawStatistics() const {return drawStatistics_;}

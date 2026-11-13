@@ -154,6 +154,7 @@ struct UiDirectWriteTextService::Impl
 {
     mutable FontCache fontCache;
     std::wstring family;
+    float rasterScale=1.0f;
     mutable std::list<CacheKey> order;
     mutable std::unordered_map<CacheKey, CachedLayout, CacheKeyHash> cache;
     mutable CacheStats stats;
@@ -191,7 +192,7 @@ struct UiDirectWriteTextService::Impl
         ++stats.misses;
         TextLayout layout;
         std::string error;
-        if (!fontCache.Layout(text, fontSize, width, layout, error, family))
+        if (!fontCache.Layout(text, fontSize, width, layout, error, family, rasterScale))
         {
             lastError = std::move(error);
             return nullptr;
@@ -343,6 +344,17 @@ void UiDirectWriteTextService::ClearCache()
 {
     impl_->order.clear();
     impl_->cache.clear();
+}
+
+bool UiDirectWriteTextService::SetRasterScale(float pixelsPerDip)
+{
+    if(!std::isfinite(pixelsPerDip) || pixelsPerDip<0.5f || pixelsPerDip>4.0f)return false;
+    if(impl_->rasterScale!=pixelsPerDip)
+    {
+        impl_->rasterScale=pixelsPerDip;
+        ClearCache();
+    }
+    return true;
 }
 
 const std::string& UiDirectWriteTextService::LastError() const noexcept

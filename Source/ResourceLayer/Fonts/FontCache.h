@@ -38,7 +38,7 @@ public:
     FontCache(const FontCache&) = delete;
     FontCache& operator=(const FontCache&) = delete;
     bool Layout(std::string_view utf8, float fontSize, float maximumWidth, TextLayout& output,
-        std::string& error, std::wstring_view family = L"Microsoft YaHei UI");
+        std::string& error, std::wstring_view family = L"Microsoft YaHei UI", float pixelsPerDip = 1.0f);
     const std::vector<FontPage>& Pages() const;
 private:
     struct Impl;

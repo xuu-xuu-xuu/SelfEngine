@@ -73,18 +73,22 @@ UiHitTest::UiHitTest(UiDocument& document, UiLayoutEngine& layout, UiStyleEngine
 
 UiHitResult UiHitTest::Hit(float x, float y) const
 {
+    return Hit(document_?document_->Root():UiElementHandle{},x,y);
+}
+
+UiHitResult UiHitTest::Hit(UiElementHandle root,float x,float y) const
+{
     UiHitResult result;
     if (!document_ || !layout_ || !document_->IsValid() || !FinitePoint(x, y))
     {
         return result;
     }
-    const UiElementHandle root = document_->Root();
     const UiRect viewport = layout_->Rect(root);
     if (!FiniteRect(viewport) || Empty(viewport))
     {
         return result;
     }
-    const UiRect clip{0.0f, 0.0f, viewport.width, viewport.height};
+    const UiRect clip{viewport.x, viewport.y, viewport.width, viewport.height};
     UiElementHandle target;
     if (!HitNode(root, x, y, clip, target) || !target.IsValid())
     {
@@ -161,6 +165,7 @@ struct UiDispatcher::Impl
     std::vector<Handler> handlers;
     UiElementHandle focus;
     UiElementHandle capture;
+    UiElementHandle inputRoot;
 
     Impl(UiDocument& documentValue, UiLayoutEngine& layoutValue, UiStyleEngine* styleValue)
         : document(&documentValue), layout(&layoutValue), style(styleValue),
@@ -323,7 +328,8 @@ bool UiDispatcher::Dispatch(UiInputEvent& event)
         }
         else
         {
-            target = impl_->hitTest.Hit(event.x, event.y).target;
+            target = impl_->inputRoot.IsValid()?impl_->hitTest.Hit(impl_->inputRoot,event.x,event.y).target:
+                impl_->hitTest.Hit(event.x,event.y).target;
         }
     }
     else if (event.type == UiEventType::KeyDown || event.type == UiEventType::KeyUp ||
@@ -435,7 +441,7 @@ void UiDispatcher::FocusNext(bool backward)
             self(self, document, child);
         }
     };
-    visit(visit, *impl_->document, impl_->document->Root());
+    visit(visit, *impl_->document, impl_->inputRoot.IsValid()?impl_->inputRoot:impl_->document->Root());
     if (focusable.empty())
     {
         return;
@@ -460,6 +466,11 @@ void UiDispatcher::ValidateFocus()
     {
         ClearFocus();
     }
+}
+
+void UiDispatcher::SetInputRoot(UiElementHandle root)
+{
+    if(impl_)impl_->inputRoot=root;
 }
 
 void UiDispatcher::SetPointerCapture(UiElementHandle element)

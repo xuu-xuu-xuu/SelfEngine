@@ -26,7 +26,7 @@ struct D3D12GuiContent
 };
 struct D3D12GuiUpload {D3D12UploadSlice vertices,indices;};
 bool CreateD3D12GuiTarget(D3D12Presentation& p,const se::rhi::RenderTargetDescription& description,
-    D3D12GuiTarget& output,const Localization& text);
+    D3D12GuiTarget& output,const Localization& text,const se::Vec4* optimizedClear=nullptr);
 bool PrepareD3D12Gui(D3D12Presentation& p,D3D12FrameContext& frame,const D3D12GuiLayer& content,D3D12FrameDescriptors& descriptors,
     D3D12GuiUpload& upload,const Localization& text);
 bool RecordD3D12GuiLayer(D3D12Presentation& p,const D3D12GuiLayer& content,D3D12FrameDescriptors& descriptors,

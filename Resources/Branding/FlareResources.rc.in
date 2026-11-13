@@ -1,0 +1,36 @@
+#include <windows.h>
+101 ICON "@CMAKE_CURRENT_SOURCE_DIR@/Resources/Branding/Flare.ico"
+1 VERSIONINFO
+ FILEVERSION 0,1,0,0
+ PRODUCTVERSION 0,1,0,0
+ FILEOS VOS_NT_WINDOWS32
+#ifdef FLARE_NATIVE_LIBRARY
+ FILETYPE VFT_DLL
+#else
+ FILETYPE VFT_APP
+#endif
+BEGIN
+ BLOCK "StringFileInfo"
+ BEGIN
+  BLOCK "040904B0"
+  BEGIN
+#ifdef FLARE_NATIVE_LIBRARY
+   VALUE "FileDescription", "Flare Engine Runtime\0"
+#else
+   VALUE "FileDescription", "Flare Engine Editor\0"
+#endif
+   VALUE "ProductName", "Flare Engine\0"
+   VALUE "FileVersion", "0.1.0\0"
+   VALUE "ProductVersion", "0.1.0\0"
+#ifdef FLARE_NATIVE_LIBRARY
+   VALUE "OriginalFilename", "EngineNative.dll\0"
+#else
+   VALUE "OriginalFilename", "FlareEditor.exe\0"
+#endif
+  END
+ END
+ BLOCK "VarFileInfo"
+ BEGIN
+  VALUE "Translation", 0x409, 1200
+ END
+END

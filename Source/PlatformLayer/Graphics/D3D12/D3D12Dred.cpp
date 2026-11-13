@@ -19,11 +19,11 @@ void WriteAllocationNode(std::ofstream& out,const char* kind,const D3D12_DRED_AL
 bool EnableDred(long* result) noexcept
 {
     Microsoft::WRL::ComPtr<ID3D12DeviceRemovedExtendedDataSettings1> settings;
-    HRESULT hr=DXGIGetDebugInterface1(0,IID_PPV_ARGS(settings.GetAddressOf()));
+    HRESULT hr=D3D12GetDebugInterface(IID_PPV_ARGS(settings.GetAddressOf()));
     if(FAILED(hr))
     {
         Microsoft::WRL::ComPtr<ID3D12DeviceRemovedExtendedDataSettings> base;
-        hr=DXGIGetDebugInterface1(0,IID_PPV_ARGS(base.GetAddressOf()));
+        hr=D3D12GetDebugInterface(IID_PPV_ARGS(base.GetAddressOf()));
         if(result)*result=hr;
         if(FAILED(hr))return false;
         base->SetAutoBreadcrumbsEnablement(D3D12_DRED_ENABLEMENT_FORCED_ON);
@@ -46,14 +46,8 @@ bool DumpDred(ID3D12Device* device,const std::filesystem::path& path) noexcept
         out<<"device: unavailable\n";
         return true;
     }
-    Microsoft::WRL::ComPtr<ID3D12Device5> device5;
-    if(FAILED(device->QueryInterface(IID_PPV_ARGS(device5.GetAddressOf()))))
-    {
-        out<<"device5: unavailable\n";
-        return true;
-    }
     Microsoft::WRL::ComPtr<ID3D12DeviceRemovedExtendedData1> data;
-    if(FAILED(device5->QueryInterface(IID_PPV_ARGS(data.GetAddressOf()))))
+    if(FAILED(device->QueryInterface(IID_PPV_ARGS(data.GetAddressOf()))))
     {
         out<<"dred: unavailable\n";
         return true;

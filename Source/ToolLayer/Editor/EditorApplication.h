@@ -10,7 +10,8 @@ struct InputState;
 struct ImGuiContext;
 namespace se
 {
-class World;class UiTree;class EditorSession;class ImGuiEditor;struct FrameData;struct EditorFrameResult;
+class World;class UiTree;class EditorSession;class ImGuiEditor;class EditorFloatingWindows;struct FrameData;struct EditorFrameResult;
+namespace ui::editor { class EditorShell; }
 struct EditorApplicationHooks
 {
     std::filesystem::path resourceDirectory;
@@ -29,6 +30,10 @@ struct EditorApplicationHooks
     std::function<void(ImGuiEditor&,EditorSession&)> operationFrame;
     std::function<void(EditorSession&,UiTree&)> closing;
     std::function<void(ImGuiContext*,const EditorFrameResult&)> drawn; // 本帧 UI 观察端口；不得保留借用数据。
+    // 原生选文件与 toolkit 帧的内部验证端口；正常入口使用系统对话框。
+    std::function<std::filesystem::path()> chooseAssetImportSource;
+    std::function<void(ui::editor::EditorShell&,EditorSession&)> toolkitDrawn;
+    std::function<void(EditorFloatingWindows&,const FrameData&)> floatingDrawn; // 本帧辅助表面观察，不保留借用数据。
     bool startPlaying=false;
     std::string editorUi="toolkit";
 };

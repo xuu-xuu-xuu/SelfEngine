@@ -1,6 +1,7 @@
 #include "ToolLayer/Editor/EditorUi/EditorDockState.h"
 
 #include <nlohmann/json.hpp>
+#include <Windows.h>
 
 #include <algorithm>
 
@@ -299,6 +300,75 @@ bool EditorDockState::Deserialize(std::string_view json, DockNode& layout, std::
     }
     layout = std::move(parsed);
     return true;
+}
+
+std::string EditorDockState::Serialize(const EditorDock& workspace)
+{
+    Json root;root["version"]=2;root["layout"]=ToJson(workspace.Root());root["floating"]=Json::array();
+    for(const auto& w:workspace.Windows())
+        root["floating"].push_back({{"id",w.id},{"x",w.x},{"y",w.y},{"width",w.width},{"height",w.height},{"layout",ToJson(w.layout)}});
+    return root.dump(2);
+}
+bool EditorDockState::Deserialize(std::string_view text,EditorDock& workspace,std::string& error)
+{
+    error.clear();
+    if(text.size()>64*1024){error="dock JSON too large";return false;}
+    try
+    {
+        const auto json=Json::parse(text);
+        const int version=json.value("version",0);
+        if(version!=1&&version!=2){error="unsupported dock version";return false;}
+        DockNode main;
+        if(!FromJson(json.at("layout"),main,error))return false;
+        EditorDock result(std::move(main));std::vector<FloatingDockWindow> windows;
+        if(version==2)
+        {
+            const auto& entries=json.at("floating");
+            if(!entries.is_array()||entries.size()>32){error="invalid floating windows";return false;}
+            for(const auto& entry:entries)
+            {
+                FloatingDockWindow window;
+                window.id=entry.at("id").get<std::uint32_t>();window.x=entry.at("x").get<int>();window.y=entry.at("y").get<int>();
+                window.width=entry.at("width").get<int>();window.height=entry.at("height").get<int>();
+                if(!FromJson(entry.at("layout"),window.layout,error))return false;
+                windows.push_back(std::move(window));
+            }
+        }
+        if(!result.RestoreWindows(std::move(windows))){error="invalid or duplicated floating panels";return false;}
+        workspace=std::move(result);return true;
+    }
+    catch(const std::exception& e){error=std::string("invalid dock JSON: ")+e.what();return false;}
+}
+bool EditorDockState::Save(const EditorDock& workspace,const std::filesystem::path& path,std::string& error)
+{
+    error.clear();
+    try
+    {
+        if(!path.parent_path().empty())std::filesystem::create_directories(path.parent_path());
+        auto temporary=path;temporary+=L".tmp";auto backup=path;backup+=L".bak";
+        {std::ofstream output(temporary,std::ios::binary|std::ios::trunc);output<<Serialize(workspace);output.flush();
+         if(!output){error="cannot write dock layout";return false;}}
+        if(std::filesystem::exists(path))std::filesystem::copy_file(path,backup,std::filesystem::copy_options::overwrite_existing);
+        // 同一卷原子替换，失败时保留原布局。
+        if(!MoveFileExW(temporary.c_str(),path.c_str(),MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH))
+        {error="cannot replace dock layout";return false;}
+        return true;
+    }
+    catch(const std::exception& e){error=e.what();return false;}
+}
+bool EditorDockState::Load(const std::filesystem::path& path,EditorDock& workspace,std::string& error)
+{
+    const auto read=[&](const std::filesystem::path& file)->bool {
+        std::error_code ec;
+        if(!std::filesystem::is_regular_file(file,ec)){error="dock layout not found";return false;}
+        if(std::filesystem::file_size(file,ec)>64*1024||ec){error="dock JSON too large";return false;}
+        std::ifstream input(file,std::ios::binary);
+        if(!input){error="cannot open dock layout";return false;}
+        return Deserialize(std::string{std::istreambuf_iterator<char>(input),{}},workspace,error);
+    };
+    if(read(path))return true;
+    auto backup=path;backup+=L".bak";
+    return read(backup);
 }
 
 } // namespace se::ui::editor

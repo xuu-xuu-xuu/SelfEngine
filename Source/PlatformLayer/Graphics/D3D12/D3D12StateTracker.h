@@ -45,6 +45,8 @@ class D3D12StateRegistry
 public:
     static std::shared_ptr<D3D12StateRegistry> ForDevice(ID3D12Device& device);
     HRESULT BindQueue(ID3D12CommandQueue& queue);
+    // 同一设备的多个交换链复用直接队列，继续遵守单队列资源状态契约。
+    ID3D12CommandQueue* BoundQueue()const noexcept {return queue_;}
     void UnbindQueue(ID3D12CommandQueue* queue) noexcept;
     HRESULT Register(ID3D12Resource& resource,D3D12_RESOURCE_STATES initial,D3D12TrackedHeap heap,std::string name);
     HRESULT RequireActivation(ID3D12Resource& resource);
@@ -59,7 +61,8 @@ private:
     std::shared_ptr<D3D12StateRecord> Lookup(ID3D12Resource& resource) const;
     ID3D12Device* device_; // 不持有 COM，避免 Device 私有元数据形成循环引用。
     const std::thread::id owner_;
-    ID3D12CommandQueue* queue_=nullptr; // 绑定者在 drain 后解除，当前只允许一条活动队列。
+    ID3D12CommandQueue* queue_=nullptr; // 各呈现持有 COM；最后一个绑定者在 drain 后解除。
+    std::size_t queueUsers_=0;
     std::unordered_map<ID3D12Resource*,std::weak_ptr<D3D12StateRecord>> records_;
     std::deque<D3D12StateEvent> events_;
     std::uint64_t nextResource_=1,submissions_=0,transitions_=0,decays_=0,activations_=0,uavBarriers_=0;

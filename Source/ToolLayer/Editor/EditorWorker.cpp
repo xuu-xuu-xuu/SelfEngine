@@ -1,4 +1,5 @@
 #include "EditorWorker.h"
+#include "EditorLoadingScreen.h"
 #include "ProjectWorkspaceSession.h"
 #include "EditorApplication.h"
 #include "EditorSession.h"
@@ -63,49 +64,16 @@ bool WriteJsonAtomic(const fs::path& path,const Json& json)
 }
 std::wstring Localized(const Localization& strings,const char* key)
 {const auto value=strings.GetText(key);return WideText(value.empty()?key:value);}
-struct CompileWindow
+void TickBuildProgress(const fs::path& operation)
 {
-    HWND window=nullptr,phase=nullptr,details=nullptr,cancelButton=nullptr;
-    std::atomic<bool> cancel=false;
-    std::wstring lastDetails;
-};
-LRESULT CALLBACK CompileProcedure(HWND window,UINT message,WPARAM wParam,LPARAM lParam)
-{
-    auto* state=reinterpret_cast<CompileWindow*>(GetWindowLongPtrW(window,GWLP_USERDATA));
-    if(message==WM_NCCREATE){state=static_cast<CompileWindow*>(reinterpret_cast<CREATESTRUCTW*>(lParam)->lpCreateParams);SetWindowLongPtrW(window,GWLP_USERDATA,reinterpret_cast<LONG_PTR>(state));}
-    if(state&&(message==WM_CLOSE||(message==WM_COMMAND&&LOWORD(wParam)==1)))
-    {state->cancel=true;EnableWindow(state->cancelButton,FALSE);return 0;}
-    return DefWindowProcW(window,message,wParam,lParam);
-}
-void CreateCompileWindow(CompileWindow& state,const Localization& strings,bool hidden)
-{
-    if(hidden)return;
-    WNDCLASSW type{};type.lpfnWndProc=CompileProcedure;type.hInstance=GetModuleHandleW(nullptr);
-    type.lpszClassName=L"SelfEngineScriptCompile";type.hCursor=LoadCursorW(nullptr,MAKEINTRESOURCEW(32512));type.hbrBackground=reinterpret_cast<HBRUSH>(COLOR_WINDOW+1);
-    RegisterClassW(&type);
-    state.window=CreateWindowExW(0,type.lpszClassName,Localized(strings,"Editor.ScriptCompileTitle").c_str(),WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU,
-        CW_USEDEFAULT,CW_USEDEFAULT,760,430,nullptr,nullptr,type.hInstance,&state);
-    if(!state.window)return;
-    state.phase=CreateWindowExW(0,L"STATIC",Localized(strings,"Editor.ScriptCompiling").c_str(),WS_CHILD|WS_VISIBLE,16,16,710,45,state.window,nullptr,type.hInstance,nullptr);
-    state.details=CreateWindowExW(WS_EX_CLIENTEDGE,L"EDIT",L"",WS_CHILD|WS_VISIBLE|WS_VSCROLL|ES_MULTILINE|ES_READONLY|ES_AUTOVSCROLL,16,68,710,275,state.window,nullptr,type.hInstance,nullptr);
-    state.cancelButton=CreateWindowExW(0,L"BUTTON",Localized(strings,"EditorUi.Cancel").c_str(),WS_CHILD|WS_VISIBLE|BS_PUSHBUTTON,610,352,115,30,state.window,reinterpret_cast<HMENU>(1),type.hInstance,nullptr);
-    const auto font=GetStockObject(DEFAULT_GUI_FONT);
-    for(const auto control:{state.phase,state.details,state.cancelButton})SendMessageW(control,WM_SETFONT,reinterpret_cast<WPARAM>(font),TRUE);
-    ShowWindow(state.window,SW_SHOW);UpdateWindow(state.window);
-}
-void TickCompileWindow(CompileWindow& state,const fs::path& operation,const Localization& strings)
-{
-    MSG message{};while(PeekMessageW(&message,nullptr,0,0,PM_REMOVE)){if(message.message==WM_QUIT)state.cancel=true;else{TranslateMessage(&message);DispatchMessageW(&message);}}
-    if(!state.window)return;
-    const auto progress=ReadJson(operation/"build-progress.json");
-    if(!progress.is_object())return;
-    const auto phase=Localized(strings,"Editor.ScriptCompiling")+L"  "+WideText(progress.value("phase",std::string{}));
-    SetWindowTextW(state.phase,phase.c_str());
-    const auto log=TextPath(progress.value("logPath",std::string{}));if(log.empty()||!Within(log,operation))return;
-    std::ifstream input(log,std::ios::binary);if(!input)return;
-    input.seekg(0,std::ios::end);const auto size=input.tellg();if(size>32768)input.seekg(size-std::streamoff(32768));else input.seekg(0);
-    const std::string bytes{std::istreambuf_iterator<char>(input),{}};const auto text=WideText(bytes);
-    if(text!=state.lastDetails){state.lastDetails=text;SetWindowTextW(state.details,text.c_str());SendMessageW(state.details,EM_LINESCROLL,0,32767);}
+    const auto progress=ReadJson(operation/"build-progress.json");if(!progress.is_object())return;
+    const auto phase=progress.value("phase",std::string{});
+    if(phase=="restore_host")ReportStartup(StartupStage::RestoreHost);
+    else if(phase=="publish_host")ReportStartup(StartupStage::PublishHost);
+    else if(phase=="verify_runtime")ReportStartup(StartupStage::VerifyRuntime);
+    else if(phase=="script_name"||phase=="restore_scripts")ReportStartup(StartupStage::RestoreScripts);
+    else if(phase=="build_scripts")ReportStartup(StartupStage::BuildScripts);
+    else if(phase=="inspect_scripts"||phase=="ready"||phase=="reused")ReportStartup(StartupStage::ValidateScripts);
 }
 bool ValidCandidate(const fs::path& root,const fs::path& operations,const fs::path& project,const fs::path& native,const std::string& configuration,Json& manifest)
 {
@@ -168,7 +136,7 @@ Json FailedBuild(const fs::path& candidate,const Json& manifest,const fs::path& 
     return status;
 }
 int RunNativeEditorWorker(const EditorWorkerOptions& options);
-int RunManagedEditorWorker(const EditorWorkerOptions& options,const fs::path& engineRoot,const fs::path& userDirectory)
+int RunManagedEditorWorker(const EditorWorkerOptions& options,const fs::path& engineRoot,const fs::path& userDirectory,EditorLoadingScreen& loading)
 {
     std::size_t workflowStages=0,workflowStage=0;std::string workflowError;
     const bool workflow=!options.smokeWorkflow.empty();
@@ -193,8 +161,11 @@ int RunManagedEditorWorker(const EditorWorkerOptions& options,const fs::path& en
         const auto path=TextPath(last.value("candidateRoot",std::string{}));
         if(!path.empty()&&ValidCandidate(path,operations,project,native,configuration,lastManifest))lastCandidate=path;
     }
+    bool firstLoad=true;
     for(;;)
     {
+        if(!firstLoad)loading.Restart();firstLoad=false;
+        if(!ReportStartup(StartupStage::Scripts))return 0;
         const auto operation=NewOperation(operations);
         if(operation.empty())
         {
@@ -202,16 +173,15 @@ int RunManagedEditorWorker(const EditorWorkerOptions& options,const fs::path& en
             return 5;
         }
         const auto buildStarted=GetTickCount64();std::uint64_t lastProgress=buildStarted,maximumProgressGap=0,progressTicks=0;
-        CompileWindow progress;CreateCompileWindow(progress,strings,options.hidden);
         ProcessRunResult build;
         const std::vector<std::wstring> arguments{L"-NoProfile",L"-ExecutionPolicy",L"Bypass",L"-File",(engineRoot/"Scripts/Build-EditorScriptCandidate.ps1").wstring(),
             L"-ProjectRoot",project.wstring(),L"-NativeDirectory",nativeDirectory.wstring(),L"-OperationDirectory",operation.wstring(),L"-Configuration",WideText(configuration),L"-Locale",WideText(options.locale)};
-        RunEditorProcess(WindowsPowerShellPath(),arguments,engineRoot,operation/"build.log",&progress.cancel,build,[&]{
+        RunEditorProcess(WindowsPowerShellPath(),arguments,engineRoot,operation/"build.log",&loading.Cancellation(),build,[&]{
             const auto now=GetTickCount64();maximumProgressGap=std::max(maximumProgressGap,now-lastProgress);lastProgress=now;++progressTicks;
-            TickCompileWindow(progress,operation,strings);
+            TickBuildProgress(operation);
         });
         const auto buildFinished=GetTickCount64();
-        if(progress.window)DestroyWindow(progress.window);
+        if(build.cancelled||loading.Cancelled())return 0;
         auto status=ReadJson(operation/"build-status.json");
         fs::path candidate;Json candidateManifest;
         if(status.is_object()&&status.value("schemaVersion",0)==1&&status.value("hasCandidate",false))
@@ -237,6 +207,7 @@ int RunManagedEditorWorker(const EditorWorkerOptions& options,const fs::path& en
             SetEnvironmentVariableW(L"SELFENGINE_EDITOR_SMOKE_WORKFLOW_STAGE",std::to_wstring(workflowStage).c_str());
             SetEnvironmentVariableW(L"SELFENGINE_EDITOR_SMOKE_HOST_START",std::to_wstring(GetTickCount64()).c_str());
         }
+        if(!ReportStartup(StartupStage::Runtime))return 0;
         int exitCode=1;
         if(candidate.empty())
         {
@@ -265,11 +236,14 @@ int RunManagedEditorWorker(const EditorWorkerOptions& options,const fs::path& en
             if(options.hidden)run.push_back(L"--hidden");
             if(options.frames){run.push_back(L"--frames");run.push_back(std::to_wstring(options.frames));}
             ProcessRunResult child;
-            std::atomic<bool> workflowTimeout=false;const auto hostStarted=GetTickCount64();
+            std::atomic<bool> workflowTimeout=false,hostCancelled=false;const auto hostStarted=GetTickCount64();
             const auto workflowMode=workflow?ReadJson(options.smokeWorkflow).at("stages")[workflowStage].value("mode",std::string("playback")):std::string{};
             const auto timeoutMs=workflowMode=="export"?std::uint64_t{905000}:std::uint64_t{120000};
             RunEditorProcess((candidate/TextPath(candidateManifest.at("runtimeExecutable").get<std::string>())).wstring(),run,engineRoot,operation/"editor.log",
-                workflow?&workflowTimeout:nullptr,child,[&]{if(workflow&&GetTickCount64()-hostStarted>timeoutMs)workflowTimeout=true;},!options.hidden);
+                &hostCancelled,child,[&]{
+                    if(workflow&&GetTickCount64()-hostStarted>timeoutMs)workflowTimeout=true;
+                    if(workflowTimeout||loading.Cancelled())hostCancelled=true;
+                },!options.hidden);
             exitCode=child.started?child.exitCode:5;
         }
         const auto restart=ReadJson(operation/"restart.json");
@@ -295,6 +269,7 @@ int RunManagedEditorWorker(const EditorWorkerOptions& options,const fs::path& en
 }
 int RunNativeEditorWorker(const EditorWorkerOptions& options)
 {
+    if(!ReportStartup(StartupStage::Runtime))return 0;
     SetEnvironmentVariableW(L"SELFENGINE_EDITOR_MANAGED_HOST",nullptr);
     EditorRenderer renderer;
     if(!options.capture.empty())renderer.SetCaptureOutput(options.capture,options.frames?options.frames:30);
@@ -350,13 +325,16 @@ int RunEditorWorker(const EditorWorkerOptions& options)
     // 监督进程持续持有唯一项目租约；编译和实际编辑子进程绝不交叠。
     const auto engineRoot=ProjectWorkspaceSession::EngineRootFromExecutable();
     const auto userDirectory=ProjectWorkspaceSession::UserDataDirectory(engineRoot);
+    Localization loadingStrings;std::string loadingError;
+    loadingStrings.Load(engineRoot/("Resources/Localization/"+options.locale+".txt"),loadingError);
+    EditorLoadingScreen loading(loadingStrings,options.projectRoot,options.hidden);
     if(!options.projectRoot.empty()&&fs::is_regular_file(engineRoot/"editor-package.json")&&asset_io::Within(engineRoot,options.projectRoot))
     {
         Localization strings;std::string error;strings.Load(engineRoot/("Resources/Localization/"+options.locale+".txt"),error);
         auto text=Localized(strings,"Editor.PackageProjectReadOnly");
         if(text==L"Editor.PackageProjectReadOnly")text=L"Projects inside the editor package are read-only. Use Open Sample to create a copy, or copy the project outside the package before opening it.";
         std::wcerr<<L"[Error] Editor.PackageProjectReadOnly: "<<text<<L"\n";
-        if(!options.hidden)MessageBoxW(nullptr,text.c_str(),L"SelfEngineEditor",MB_ICONERROR|MB_OK);return 3;
+        if(!options.hidden)MessageBoxW(nullptr,text.c_str(),L"Flare Engine",MB_ICONERROR|MB_OK);return 3;
     }
     const auto manifest=options.projectRoot.empty()?fs::path{}:options.projectRoot/L"project.json";
     bool acquired=true;std::string occupant;ProjectLease lease;
@@ -365,7 +343,7 @@ int RunEditorWorker(const EditorWorkerOptions& options)
     {
         Localization strings;std::string error;strings.Load(engineRoot/("Resources/Localization/"+options.locale+".txt"),error);
         const auto text=Localized(strings,"Editor.LauncherLeaseBusy");std::wcerr<<text<<L"\n";
-        if(!options.hidden)MessageBoxW(nullptr,text.c_str(),L"SelfEngineEditor",MB_ICONERROR|MB_OK);return 6;
+        if(!options.hidden)MessageBoxW(nullptr,text.c_str(),L"Flare Engine",MB_ICONERROR|MB_OK);return 6;
     }
     SetEnvironmentVariableW(L"SELFENGINE_EDITOR_SCENE_EXPLICIT",(!options.scene.empty()||options.smokePlayback)?L"1":nullptr);
     // 仅正式 Worker 参数设置烟测环境；RunEditorApp 的共用驱动负责执行和报告。
@@ -378,12 +356,14 @@ int RunEditorWorker(const EditorWorkerOptions& options)
     SetEnvironmentVariableW(L"SELFENGINE_EDITOR_SMOKE_HOST_START",nullptr);
     SetEnvironmentVariableW(L"SELFENGINE_EDITOR_SMOKE_SUPERVISOR_PID",options.smokeWorkflow.empty()?nullptr:std::to_wstring(GetCurrentProcessId()).c_str());
     SetEnvironmentVariableW(L"SELFENGINE_EDITOR_SMOKE_SUPERVISOR_START",options.smokeWorkflow.empty()?nullptr:std::to_wstring(supervisorStarted).c_str());
+    bool firstNativeLoad=true;
     for(;;)
     {
+        if(!firstNativeLoad)loading.Restart();firstNativeLoad=false;
         const auto build=ReadJson(options.projectRoot/"build.json");
         if(fs::is_regular_file(options.projectRoot/"build.json")&&(!build.is_object()
             ||(build.contains("scriptsProject")&&(!build["scriptsProject"].is_string()||!build["scriptsProject"].get<std::string>().empty()))))
-            return RunManagedEditorWorker(options,engineRoot,userDirectory);
+            return RunManagedEditorWorker(options,engineRoot,userDirectory,loading);
         // 空项目也有受控重开入口：首次创建 Behaviour 后无需手动关掉启动器。
         if(options.projectRoot.empty())return RunNativeEditorWorker(options);
         const auto operation=NewOperation(fs::absolute(options.projectRoot)/"out/Editor"/userDirectory.filename()/"operations");

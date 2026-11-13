@@ -223,7 +223,7 @@ bool InitializeD3D12Context(D3D12Context& context, const Localization& localizat
     long dredResult=0;
     const bool dred=se::d3d12::EnableDred(&dredResult);
     {std::ostringstream message;message<<localization.GetText(dred?"D3D12.DredEnabled":"D3D12.DredUnavailable")
-        <<" (0x"<<std::hex<<static_cast<unsigned long>(dredResult)<<")";Log(LogLevel::Debug,message.str());}
+        <<" (0x"<<std::hex<<static_cast<unsigned long>(dredResult)<<")";Log(dred?LogLevel::Info:LogLevel::Warning,message.str());}
     if (!LogAdapters(*initialized.factory.Get(), localization)
         || !SelectAndCreateDevice(initialized, localization))
     {

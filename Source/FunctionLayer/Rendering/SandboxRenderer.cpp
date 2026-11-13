@@ -460,6 +460,7 @@ RenderResult SandboxRenderer::Render(const RenderFrame& frame, const Localizatio
         if(!editorGui_)editorGui_=std::make_unique<se::GuiCompositor>();
         se::rhi::FrameComposition composition;composition.scene=editorTarget_->Targets();
         result=commands->ConfigureComposition(composition);
+        if(result)result=commands->ConfigureSceneOverlay(frame.data->editorSceneLines,ResourceDirectory()/"Shaders/SceneOverlay.hlsl",scaleX>0?scaleX:1,frame.data->editorGridEnabled);
         if(result)result=editorGui_->Configure(*device_,*commands,*frame.data,editorTarget_->LdrColor(),frame.surface.width,frame.surface.height,ResourceDirectory()/"Shaders");
     }
     else if(frame.data&&frame.data->editorGuiEnabled)result=gui_.Configure(*device_,*commands,*frame.data,frame.surface.width,frame.surface.height,ResourceDirectory()/"Shaders");
@@ -892,6 +893,8 @@ RenderResult SandboxRenderer::Render(const RenderFrame& frame, const Localizatio
                 if(lodBlend>0.0f)appendLod(lodLevel,lodBlend);
             }
             else appendLod(lodLevel,0.0f);
+            if(editor&&mesh.entity==frame.data->editorSelected)
+                for(auto i=first;i<meshes.size();++i)meshes[i].outline=true;
             drawStatistics_.visible+=meshes.size()>first;
             if(occlusionWanted&&meshes.size()>first)
             {
@@ -1004,6 +1007,11 @@ RenderResult SandboxRenderer::Render(const RenderFrame& frame, const Localizatio
             std::vector<se::AssetDiagnostic> diagnostics;
             auto lighting=se::PrepareForwardLighting(frame.data?std::span<const se::LightInstance>(frame.data->lights):std::span<const se::LightInstance>{},
                 frame.data?frame.data->exposure:1,frame.data?frame.data->skyColor:se::Vec3{},diagnostics);report(diagnostics);
+            if(editor&&!frame.data->editorSkyEnabled)
+            {
+                lighting.skySettings.zenithColor=lighting.skySettings.horizonColor=lighting.skySettings.groundColor=frame.data->skyColor;
+                lighting.skySettings.sunIntensity=0;
+            }
             // G15：输出 LUT 布局需要 t2；无 LUT 时绑定 1×1 占位，Shader 通过尺寸跳过采样。
             // G15.09：Lighting 使用 SELFENGINE_LUT_FILE 烘出的 strip；BasicLit 只在编辑器有选择时使用 strip。
             if(outputLutScene_)
@@ -1235,6 +1243,7 @@ bool SandboxRenderer::UpdateLutStrip(const Localization& localization)
 }
 void SandboxRenderer::Shutdown() noexcept
 {
+    hlodStreamer_.Cancel(); // 先停止后台读取与结果发布，再排空和释放 GPU。
     if(device_&&!profileOutput_.empty())
         try{std::string telemetryError;if(!telemetry_.ExportCsv(profileOutput_/"telemetry.csv",telemetryError))profileExportFailed_=true;
             if(!device_->ExportGpuTimingsCsv(profileOutput_/"gpu.csv")
@@ -1249,7 +1258,7 @@ void SandboxRenderer::Shutdown() noexcept
     camera_.reset();
     hlodBaked_=false;hlodFailed_=false;hlodInstanceCount_=0;
     hlodCells_.clear();hlodProxies_.clear();hlodOverrides_.clear();hlodProxyActive_.clear();hlodCandidateCell_.clear();hlodStream_.Clear();
-    hlodStreamer_.Cancel();hlodProxyCache_.Reset();hlodProxyBytes_.clear();
+    hlodProxyCache_.Reset();hlodProxyBytes_.clear();
     impostorEnabled_=false;impostorTexture_.reset();impostorPipeline_.reset();impostorQuad_.reset();
     lutFile_.Close();reportedLutFailures_=0;
     lutStrip_.reset();lutDummy_.reset();lutStripReady_=false;lutStripRevision_=0;editorLutPath_.clear();

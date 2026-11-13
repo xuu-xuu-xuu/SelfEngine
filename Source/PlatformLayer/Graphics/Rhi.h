@@ -180,6 +180,14 @@ struct DrawIndexed
     bool hasPreviousWorld=false;
     Mat4 previousWorld;
     bool compressedVertices=false;
+    bool outline=false; // 场景可见像素轮廓；不改变材质、阴影或物体深度。
+};
+// 世界空间辅助线。width 为逻辑像素；隐藏部分 alpha=0 表示遵守正常遮挡。
+struct SceneLine
+{
+    Vec3 a,b;
+    Vec4 color{1,1,1,1};
+    float width=1,occludedAlpha=0;
 };
 struct InstanceParameters
 {
@@ -368,6 +376,7 @@ public:
         const GuiGeometry& geometry,std::span<const TextureHandle> commandTextures);
     // 场景最终输出之后、编辑器 GUI 之前的 sRGB 游戏界面；帧开始时复制几何并保活资源。
     Result ConfigureGameUi(PipelineHandle pipeline,const GuiGeometry& geometry,std::span<const TextureHandle> commandTextures);
+    Result ConfigureSceneOverlay(std::span<const SceneLine> lines,const std::filesystem::path& shader,float pixelScale=1,bool groundGrid=false);
     Result ConfigureShadows(const ShadowSettings& shadows,PipelineHandle depthPipeline);
     Result ConfigureEnvironment(const EnvironmentBindings& environment);
     Result ConfigurePostProcess(const PostProcessSettings& settings,const PostProcessPipelines& pipelines);
@@ -429,6 +438,7 @@ public:
     Result WaitIdle();
     void Collect();
     Statistics Stats() const;
+    std::vector<std::string> DebugMessages() const; // 调试层 warning/error 的原始诊断，按需读取。
     AdapterInformation Adapter() const;
     bool Occluded() const;
     Result EnableGpuTiming(bool enabled);

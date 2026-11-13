@@ -67,6 +67,18 @@ public:
     [[nodiscard]] const std::filesystem::path& LayoutPath() const noexcept;
     bool SaveLayout();
     bool LoadLayout();
+    std::uint32_t FloatPanel(EditorPanelId panel,int x,int y,int width=640,int height=480);
+    void CloseFloatingWindow(std::uint32_t id);
+    void SetFloatingBounds(std::uint32_t id,int x,int y,int width,int height);
+    void SetSurfaceSize(std::uint32_t id,float width,float height);
+    void SetInputSurface(std::uint32_t id);
+    [[nodiscard]] UiElementHandle SurfaceRoot(std::uint32_t id) const;
+    [[nodiscard]] UiElementHandle CurrentInputRoot() const {return SurfaceRoot(inputSurface_);}
+    [[nodiscard]] std::uint32_t SurfaceForElement(UiElementHandle element) const;
+    [[nodiscard]] UiRect SurfaceDockRect(std::uint32_t id) const;
+    [[nodiscard]] EditorPanelId DraggingPanel() const noexcept {return dragTabPanel_;}
+    void SetFloatRequestHandler(std::function<void(EditorPanelId)> handler){floatRequest_=std::move(handler);}
+    [[nodiscard]] std::string WindowLabel(std::uint32_t id) const;
 
     void AppendConsoleLine(std::string line);
     void SetHierarchy(std::vector<EditorHierarchyNode> nodes);
@@ -80,6 +92,8 @@ public:
     void SetViewportImage(std::string image);
     void SetGizmo(float x, float y, bool visible);
     void SetGizmoDragHandler(std::function<void(int, float, float)> handler);
+    void SetViewportActionHandler(std::function<void(std::string_view)> handler){viewportAction_=std::move(handler);}
+    void SetViewportState(int tool,bool local,bool center,bool sky,bool grid,bool gizmos,bool playing);
 
     // 状态栏与面板开关；Chrome/菜单/快捷键共用同一命令总线。
     void SetStatus(std::string status);
@@ -168,6 +182,7 @@ public:
     [[nodiscard]] UiElementHandle Panel(EditorPanelId panel) const noexcept;
     [[nodiscard]] UiElementHandle TabBar(EditorPanelId panel) const noexcept;
     [[nodiscard]] UiElementHandle TabButton(EditorPanelId panel) const noexcept;
+    [[nodiscard]] UiElementHandle DockPreview() const noexcept {return dropHighlight_;}
     [[nodiscard]] UiElementHandle MenuDropdown() const noexcept;
     [[nodiscard]] bool MenuOpen() const noexcept;
     [[nodiscard]] const std::vector<std::string>& ConsoleLines() const noexcept;
@@ -185,6 +200,7 @@ private:
 
     struct GroupView
     {
+        std::uint32_t surface=0;
         std::vector<EditorPanelId> tabs;
         EditorPanelId active = EditorPanelId::None;
         std::vector<std::size_t> path;
@@ -196,6 +212,7 @@ private:
 
     struct SplitHandle
     {
+        std::uint32_t surface=0;
         std::vector<std::size_t> path;
         DockAxis axis = DockAxis::Horizontal;
         UiRect rect{};
@@ -255,9 +272,11 @@ private:
     void HideCloseModal();
     void SelectPanel(EditorPanelId panel, bool save);
     void HandleTabDown(EditorPanelId panel, UiInputEvent& event);
-    void HandleTabMove(const UiInputEvent& event);
-    void HandleTabUp(const UiInputEvent& event);
+    void HandleTabMove(UiInputEvent& event);
+    void HandleTabUp(UiInputEvent& event);
     void ApplyTabDrop();
+    [[nodiscard]] bool ApplyTabDrop(EditorDock& dock) const;
+    void CancelTabDrag();
     void BeginSplitter(float x, float y);
     void DragSplitter(float x, float y);
     void EndSplitter();
@@ -280,8 +299,15 @@ private:
     EditorCommandRouter router_;
     EditorChrome chrome_;
     EditorDock dock_;
+    struct SurfaceView {std::uint32_t id=0;UiElementHandle root;float width=640,height=440;};
+    std::vector<SurfaceView> surfaces_;
+    std::uint32_t inputSurface_=0,splitterSurface_=0;
+    std::function<void(EditorPanelId)> floatRequest_;
     std::array<PanelSlot, kPanelCount> slots_{};
     std::vector<GroupView> groups_;
+    UiElementHandle viewportTools_{};
+    std::vector<UiElementHandle> viewportToolButtons_;
+    std::function<void(std::string_view)> viewportAction_;
     std::vector<SplitHandle> splitHandles_;
     std::vector<UiElementHandle> pendingDestroy_;
     std::array<FormPanel, 4> forms_{};
@@ -329,6 +355,7 @@ private:
     UiElementHandle assetsFilterElement_{};
     UiElementHandle dragGhost_{};
     UiElementHandle dropHighlight_{};
+    UiElementHandle tabInsertMarker_{};
     UiElementHandle modalBackdrop_{};
     UiElementHandle modalDialog_{};
     UiElementHandle modalSave_{};
@@ -392,7 +419,8 @@ private:
     bool tabDragging_ = false;
     float tabDragStartX_ = 0.0f;
     float tabDragStartY_ = 0.0f;
-    int dropGroup_ = -1;
+    EditorPanelId dropTarget_ = EditorPanelId::None;
+    bool dropBefore_ = false;
     int dropZone_ = 0;
 };
 

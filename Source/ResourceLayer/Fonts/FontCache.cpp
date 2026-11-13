@@ -46,6 +46,7 @@ std::vector<UiRect> TextLayout::Selection(std::size_t first,std::size_t last)con
 }
 struct FontCache::Impl : IDWriteTextRenderer
 {
+    struct DrawContext {TextLayout& layout;float pixelsPerDip;};
     ComPtr<IDWriteFactory> factory;
     std::vector<FontPage> pages;
     // run key 含完整字形/advance/offset；支持整形后的连字和字体回退。
@@ -65,16 +66,20 @@ struct FontCache::Impl : IDWriteTextRenderer
     }
     HRESULT STDMETHODCALLTYPE IsPixelSnappingDisabled(void*,BOOL* disabled) override { *disabled=TRUE;return S_OK; }
     HRESULT STDMETHODCALLTYPE GetCurrentTransform(void*,DWRITE_MATRIX* m) override { *m={1,0,0,1,0,0};return S_OK; }
-    HRESULT STDMETHODCALLTYPE GetPixelsPerDip(void*,FLOAT* value) override { *value=1;return S_OK; }
+    HRESULT STDMETHODCALLTYPE GetPixelsPerDip(void* context,FLOAT* value) override
+    {*value=static_cast<DrawContext*>(context)->pixelsPerDip;return S_OK;}
     HRESULT STDMETHODCALLTYPE DrawGlyphRun(void* context,FLOAT x,FLOAT y,DWRITE_MEASURING_MODE mode,
         const DWRITE_GLYPH_RUN* run,const DWRITE_GLYPH_RUN_DESCRIPTION*,IUnknown*) override
     {
         try
         {
+            auto& draw=*static_cast<DrawContext*>(context);
+            const float scale=draw.pixelsPerDip;
             std::string key;
             const auto append=[&](const auto& value){key.append(reinterpret_cast<const char*>(&value),sizeof(value));};
             append(run->fontFace);append(run->fontEmSize);append(run->isSideways);append(run->bidiLevel);append(mode);
             append(run->glyphCount);append(run->glyphAdvances!=nullptr);append(run->glyphOffsets!=nullptr);
+            append(scale);
             for(UINT32 i=0;i<run->glyphCount;++i)
             {
                 append(run->glyphIndices[i]);
@@ -85,7 +90,7 @@ struct FontCache::Impl : IDWriteTextRenderer
             if(found==entries.end())
             {
                 ComPtr<IDWriteGlyphRunAnalysis> analysis;
-                HRESULT hr=factory->CreateGlyphRunAnalysis(run,1,nullptr,DWRITE_RENDERING_MODE_NATURAL_SYMMETRIC,mode,0,0,&analysis);
+                HRESULT hr=factory->CreateGlyphRunAnalysis(run,scale,nullptr,DWRITE_RENDERING_MODE_NATURAL_SYMMETRIC,mode,0,0,&analysis);
                 if(FAILED(hr))return hr;
                 RECT bounds{}; hr=analysis->GetAlphaTextureBounds(DWRITE_TEXTURE_CLEARTYPE_3x1,&bounds);
                 if(FAILED(hr))return hr;
@@ -117,8 +122,9 @@ struct FontCache::Impl : IDWriteTextRenderer
                 faces.emplace_back(run->fontFace);found=entries.emplace(std::move(key),std::move(tiles)).first;
             }
             for(const auto& entry:found->second)
-                static_cast<TextLayout*>(context)->quads.push_back({entry.page,
-                    {x+entry.bounds.left,y+entry.bounds.top,entry.pixels.width,entry.pixels.height},entry.pixels});
+                draw.layout.quads.push_back({entry.page,
+                    {x+entry.bounds.left/scale,y+entry.bounds.top/scale,
+                     entry.pixels.width/scale,entry.pixels.height/scale},entry.pixels});
             return S_OK;
         }
         catch(...){return E_OUTOFMEMORY;}
@@ -130,12 +136,13 @@ struct FontCache::Impl : IDWriteTextRenderer
 FontCache::FontCache():impl_(std::make_unique<Impl>()){}
 FontCache::~FontCache()=default;
 const std::vector<FontPage>& FontCache::Pages() const{return impl_->pages;}
-bool FontCache::Layout(std::string_view utf8,float fontSize,float maximumWidth,TextLayout& output,std::string& error,std::wstring_view family)
+bool FontCache::Layout(std::string_view utf8,float fontSize,float maximumWidth,TextLayout& output,std::string& error,std::wstring_view family,float pixelsPerDip)
 {
     error.clear();std::u32string decoded;
     if(!impl_->factory){error="Font.InitializeFailed";return false;}
     if(utf8.size()>65536||!DecodeUtf8(utf8,decoded)||!std::isfinite(fontSize)||fontSize<1||fontSize>256
-        ||!std::isfinite(maximumWidth)||maximumWidth<=0||maximumWidth>100000){error="Font.InvalidText";return false;}
+        ||!std::isfinite(maximumWidth)||maximumWidth<=0||maximumWidth>100000
+        ||!std::isfinite(pixelsPerDip)||pixelsPerDip<0.5f||pixelsPerDip>4.0f){error="Font.InvalidText";return false;}
     auto state=std::make_shared<TextLayout::State>();
     UINT32 position=0;for(char32_t c:decoded){state->positions.push_back(position);position+=c>0xffff?2:1;}state->positions.push_back(position);
     const auto utf16=EncodeUtf16(decoded);ComPtr<IDWriteTextFormat> format;const std::wstring familyName(family);
@@ -145,7 +152,8 @@ bool FontCache::Layout(std::string_view utf8,float fontSize,float maximumWidth,T
     if(FAILED(hr)){error="Font.LayoutFailed";return false;}
     DWRITE_TEXT_METRICS metrics{};state->layout->GetMetrics(&metrics);
     TextLayout next;next.state_=state;next.width=metrics.widthIncludingTrailingWhitespace;next.height=metrics.height;next.lineCount=metrics.lineCount;
-    impl_->lastError.clear();hr=state->layout->Draw(&next,impl_.get(),0,0);
+    Impl::DrawContext context{next,pixelsPerDip};
+    impl_->lastError.clear();hr=state->layout->Draw(&context,impl_.get(),0,0);
     if(FAILED(hr)){error=impl_->lastError.empty()?"Font.RasterizeFailed":impl_->lastError;return false;}
     output=std::move(next);return true;
 }

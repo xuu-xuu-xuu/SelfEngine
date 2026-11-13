@@ -1,4 +1,6 @@
 #include "EditorLauncher.h"
+#include "LauncherStyle.h"
+#include "PlatformLayer/Windows/AppBranding.h"
 #include "EditorWorker.h"
 #include "ProjectWorkspaceSession.h"
 #include "CoreLayer/Localization.h"
@@ -47,7 +49,7 @@ std::string Utf8(const std::wstring& text)
 struct LauncherStrings
 {
     Localization localization;
-    std::wstring title,status,environment,newProject,openProject,openSample,quit;
+    std::wstring title,newProject,openProject,openSample,quit;
     std::wstring newSoon,recentEmpty,sampleMissing,invalidProject,workerFailed,safeMode,openTitle;
     std::wstring recentTitle,open,remove,relocate,selectHint,newTitle,templateLabel,templateBlank,templateBasic;
     std::wstring nameLabel,parentLabel,browse,finalPath,create,cancel,leaseBusy,openFailed,createFailed,preferenceFailed;
@@ -69,9 +71,7 @@ struct LauncherStrings
         std::string error;
         strings.localization.Load(directory/("Resources/Localization/"+locale+".txt"),error);
         const auto value=[&](const char* key,const wchar_t* fallback){return strings.Get(key,fallback);};
-        strings.title=value("Editor.LauncherTitle",L"SelfEngine Editor");
-        strings.status=value("Editor.LauncherStatus",L"Editor entry ready; no project opened.");
-        strings.environment=value("Editor.LauncherEnvironment",L"Runtime:");
+        strings.title=value("Editor.LauncherTitle",L"Flare Engine Editor");
         strings.newProject=value("Editor.LauncherNewProject",L"New Project");
         strings.openProject=value("Editor.LauncherOpenProject",L"Open Project...");
         strings.openSample=value("Editor.LauncherOpenSample",L"Open Sample");
@@ -113,22 +113,22 @@ struct LauncherState
     std::string locale;
     bool safeMode=false,uiErrors=true;
     ProjectWorkspaceSession workspace;
-    HWND window=nullptr,title=nullptr,status=nullptr,environment=nullptr,note=nullptr;
+    HWND window=nullptr,title=nullptr,note=nullptr;
     HWND newProject=nullptr,openProject=nullptr,openSample=nullptr,quit=nullptr;
-    HWND recentList=nullptr,recentOpen=nullptr,recentRemove=nullptr,recentRelocate=nullptr;
+    HWND recentList=nullptr,recentLabel=nullptr,recentOpen=nullptr,recentRemove=nullptr,recentRelocate=nullptr;
     HFONT titleFont=nullptr,bodyFont=nullptr;
 };
 
 void ShowError(const LauncherState& state,const std::wstring& detail)
 {
     std::wcerr<<L"[Error] launcher error\n";
-    if(state.uiErrors)MessageBoxW(state.window,detail.c_str(),L"SelfEngineEditor",MB_ICONERROR|MB_OK);
+    if(state.uiErrors)MessageBoxW(state.window,detail.c_str(),L"Flare Engine",MB_ICONERROR|MB_OK);
 }
 void ShowError(const LauncherStrings& strings,bool uiErrors,const std::wstring& detail)
 {
     (void)strings;
     std::wcerr<<L"[Error] launcher error\n";
-    if(uiErrors)MessageBoxW(nullptr,detail.c_str(),L"SelfEngineEditor",MB_ICONERROR|MB_OK);
+    if(uiErrors)MessageBoxW(nullptr,detail.c_str(),L"Flare Engine",MB_ICONERROR|MB_OK);
 }
 void SetNote(LauncherState& state,const std::wstring& text)
 {
@@ -225,7 +225,7 @@ bool OpenProjectFlow(LauncherState& state,const std::filesystem::path& requested
     RefreshRecent(state);
     if(exitCode==6){ShowError(state,state.strings.leaseBusy);SetNote(state,state.strings.leaseBusy);return true;}
     if(exitCode!=0){ShowError(state,state.strings.workerFailed+L" "+std::to_wstring(exitCode));return true;}
-    SetNote(state,state.strings.status);
+    SetNote(state,state.strings.selectHint);
     return true;
 }
 bool OpenSampleFlow(LauncherState& state)
@@ -266,11 +266,15 @@ void CreateNewProjectDialogControls(NewProjectDialogState& dialog,const Launcher
     const auto make=[&](const wchar_t* type,const std::wstring& text,DWORD style,int x,int y,int width,int height,int id,HWND& output)
     {
         output=CreateWindowExW(0,type,text.c_str(),style|WS_CHILD|WS_VISIBLE,x,y,width,height,dialog.window,reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),instance,nullptr);
-        if(output)SendMessageW(output,WM_SETFONT,reinterpret_cast<WPARAM>(launcher.bodyFont),TRUE);
+        if(output)
+        {
+            SendMessageW(output,WM_SETFONT,reinterpret_cast<WPARAM>(launcher.bodyFont),TRUE);
+            launcher_style::ThemeControl(output);
+        }
         return output!=nullptr;
     };
     HWND label=nullptr;make(L"STATIC",launcher.strings.templateLabel,SS_LEFT,16,16,120,22,-1,label);
-    make(L"COMBOBOX",L"",CBS_DROPDOWNLIST|WS_VSCROLL|WS_TABSTOP,150,14,340,120,ControlTemplate,dialog.combo);
+    make(L"COMBOBOX",L"",CBS_DROPDOWNLIST|CBS_OWNERDRAWFIXED|CBS_HASSTRINGS|WS_VSCROLL|WS_TABSTOP,150,14,340,120,ControlTemplate,dialog.combo);
     SendMessageW(dialog.combo,CB_ADDSTRING,0,reinterpret_cast<LPARAM>(launcher.strings.templateBlank.c_str()));
     SendMessageW(dialog.combo,CB_ADDSTRING,0,reinterpret_cast<LPARAM>(launcher.strings.templateBasic.c_str()));
     SendMessageW(dialog.combo,CB_SETCURSEL,0,0);
@@ -278,11 +282,11 @@ void CreateNewProjectDialogControls(NewProjectDialogState& dialog,const Launcher
     make(L"EDIT",L"NewProject",WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL,150,50,340,24,ControlName,dialog.name);
     make(L"STATIC",launcher.strings.parentLabel,SS_LEFT,16,88,120,22,-1,label);
     make(L"EDIT",L"",WS_BORDER|WS_TABSTOP|ES_AUTOHSCROLL,150,86,240,24,ControlParent,dialog.parent);
-    make(L"BUTTON",launcher.strings.browse,BS_PUSHBUTTON|WS_TABSTOP,396,84,94,28,ControlBrowse,label);
+    make(L"BUTTON",launcher.strings.browse,BS_OWNERDRAW|WS_TABSTOP,396,84,94,28,ControlBrowse,label);
     make(L"STATIC",launcher.strings.finalPath,SS_LEFT,16,126,120,22,-1,label);
     make(L"STATIC",L"",SS_LEFT|SS_PATHELLIPSIS|WS_BORDER,16,150,480,24,-1,dialog.preview);
-    make(L"BUTTON",launcher.strings.create,BS_DEFPUSHBUTTON|WS_TABSTOP,290,220,100,30,ControlCreate,label);
-    make(L"BUTTON",launcher.strings.cancel,BS_PUSHBUTTON|WS_TABSTOP,400,220,100,30,ControlCancel,label);
+    make(L"BUTTON",launcher.strings.create,BS_OWNERDRAW|WS_TABSTOP,290,220,100,30,ControlCreate,label);
+    make(L"BUTTON",launcher.strings.cancel,BS_OWNERDRAW|WS_TABSTOP,400,220,100,30,ControlCancel,label);
     SetWindowTextW(dialog.name,L"NewProject");
     wchar_t buffer[1024]{};
     GetCurrentDirectoryW(1024,buffer);
@@ -300,6 +304,17 @@ LRESULT CALLBACK NewProjectProcedure(HWND window,UINT message,WPARAM wParam,LPAR
         SetWindowLongPtrW(window,GWLP_USERDATA,reinterpret_cast<LONG_PTR>(create->lpCreateParams));
         return DefWindowProcW(window,message,wParam,lParam);
     }
+    case WM_ERASEBKGND:
+    {
+        RECT rect{};GetClientRect(window,&rect);launcher_style::Fill(reinterpret_cast<HDC>(wParam),rect,flare::Background);return 1;
+    }
+    case WM_CTLCOLORSTATIC:case WM_CTLCOLOREDIT:case WM_CTLCOLORLISTBOX:
+        return launcher_style::ControlColors(message,reinterpret_cast<HDC>(wParam),false);
+    case WM_MEASUREITEM:
+        reinterpret_cast<MEASUREITEMSTRUCT*>(lParam)->itemHeight=22;return TRUE;
+    case WM_DRAWITEM:
+        if(launcher_style::DrawControl(*reinterpret_cast<DRAWITEMSTRUCT*>(lParam)))return TRUE;
+        break;
     case WM_CREATE:return 0;
     case WM_COMMAND:
         if(!dialog||!dialog->launcher)break;
@@ -323,7 +338,7 @@ LRESULT CALLBACK NewProjectProcedure(HWND window,UINT message,WPARAM wParam,LPAR
                 dialog->launcher->templateRoot,dialog->created,errorKey,detail))
             {
                 const auto text=dialog->launcher->strings.createFailed+L"\n"+dialog->launcher->strings.Error(errorKey)+L"\n"+Wide(detail);
-                MessageBoxW(window,text.c_str(),L"SelfEngineEditor",MB_ICONERROR|MB_OK);
+                MessageBoxW(window,text.c_str(),L"Flare Engine",MB_ICONERROR|MB_OK);
                 return 0;
             }
             dialog->accepted=true;DestroyWindow(window);return 0;
@@ -355,18 +370,22 @@ bool RunNewProjectDialog(LauncherState& launcher,bool autoCreate)
     windowClass.lpfnWndProc=NewProjectProcedure;
     windowClass.hInstance=instance;
     windowClass.hCursor=LoadCursorW(nullptr,reinterpret_cast<LPCWSTR>(IDC_ARROW));
-    windowClass.hbrBackground=reinterpret_cast<HBRUSH>(COLOR_WINDOW+1);
+    windowClass.hbrBackground=nullptr;
     windowClass.lpszClassName=className;
     if(!RegisterClassExW(&windowClass)&&GetLastError()!=ERROR_CLASS_ALREADY_EXISTS)return false;
     NewProjectDialogState dialog;dialog.launcher=&launcher;
     RECT rectangle{0,0,DialogWidth,DialogHeight};
     AdjustWindowRectEx(&rectangle,WS_OVERLAPPEDWINDOW,FALSE,0);
     EnableWindow(launcher.window,FALSE);
-    dialog.window=CreateWindowExW(WS_EX_DLGMODALFRAME,className,launcher.strings.newTitle.c_str(),WS_OVERLAPPEDWINDOW|WS_VISIBLE,
+    dialog.window=CreateWindowExW(WS_EX_DLGMODALFRAME,className,launcher.strings.newTitle.c_str(),WS_OVERLAPPEDWINDOW,
         CW_USEDEFAULT,CW_USEDEFAULT,rectangle.right-rectangle.left,rectangle.bottom-rectangle.top,
         launcher.window,nullptr,instance,&dialog);
     if(!dialog.window){EnableWindow(launcher.window,TRUE);return false;}
+    ApplyAppIcon(dialog.window);
+    flare::StyleTitleBar(dialog.window);
     CreateNewProjectDialogControls(dialog,launcher);
+    ShowWindow(dialog.window,SW_SHOW);
+    SetFocus(dialog.name);
     if(autoCreate)
     {
         SetWindowTextW(dialog.parent,launcher.smokeCreateParent.wstring().c_str());
@@ -378,12 +397,34 @@ bool RunNewProjectDialog(LauncherState& launcher,bool autoCreate)
     MSG message{};
     while(IsWindow(dialog.window))
     {
-        while(PeekMessageW(&message,nullptr,0,0,PM_REMOVE)){TranslateMessage(&message);DispatchMessageW(&message);}
+        while(PeekMessageW(&message,nullptr,0,0,PM_REMOVE)){
+            if(message.message==WM_KEYDOWN && message.wParam==VK_ESCAPE){DestroyWindow(dialog.window);break;}
+            if(!IsDialogMessageW(dialog.window,&message)){TranslateMessage(&message);DispatchMessageW(&message);}
+        }
         Sleep(10);
     }
     EnableWindow(launcher.window,TRUE);SetForegroundWindow(launcher.window);
     if(!dialog.accepted)return false;
     return OpenProjectFlow(launcher,dialog.created.root,autoCreate?L"--hidden --frames 20":L"");
+}
+
+void LayoutLauncher(LauncherState& s)
+{
+    RECT r{};GetClientRect(s.window,&r);
+    const int left=32, width=std::max(400L,r.right-left*2), gap=8;
+    const int actionsY=std::max(300L,r.bottom-92), button=(width-2*gap)/3;
+    const auto move=[](HWND h,int x,int y,int w,int height){if(h)MoveWindow(h,x,y,w,height,TRUE);};
+    move(s.title,102,32,width-70,40);
+    move(s.newProject,left,106,button,34);
+    move(s.openProject,left+button+gap,106,button,34);
+    move(s.openSample,left+2*(button+gap),106,width-2*(button+gap),34);
+    move(s.recentLabel,left,164,width,22);
+    move(s.recentList,left,192,width,actionsY-204);
+    move(s.recentOpen,left,actionsY,84,32);
+    move(s.recentRemove,left+92,actionsY,104,32);
+    move(s.recentRelocate,left+204,actionsY,116,32);
+    move(s.quit,left+width-84,actionsY,84,32);
+    move(s.note,left,actionsY+43,width,24);
 }
 
 LRESULT CALLBACK LauncherProcedure(HWND window,UINT message,WPARAM wParam,LPARAM lParam)
@@ -397,13 +438,35 @@ LRESULT CALLBACK LauncherProcedure(HWND window,UINT message,WPARAM wParam,LPARAM
         SetWindowLongPtrW(window,GWLP_USERDATA,reinterpret_cast<LONG_PTR>(create->lpCreateParams));
         return DefWindowProcW(window,message,wParam,lParam);
     }
+    case WM_GETMINMAXINFO:
+        reinterpret_cast<MINMAXINFO*>(lParam)->ptMinTrackSize={510,450};return 0;
+    case WM_SIZE:
+        if(state && state->note && wParam!=SIZE_MINIMIZED)LayoutLauncher(*state);
+        return 0;
+    case WM_ERASEBKGND:
+    {
+        RECT rect{};GetClientRect(window,&rect);launcher_style::Fill(reinterpret_cast<HDC>(wParam),rect,flare::Background);return 1;
+    }
+    case WM_CTLCOLORSTATIC:case WM_CTLCOLORLISTBOX:
+    {
+        const auto child=reinterpret_cast<HWND>(lParam);
+        const bool muted=state && child==state->note;
+        const auto brush=launcher_style::ControlColors(message,reinterpret_cast<HDC>(wParam),muted);
+        if(state && child==state->title)SetTextColor(reinterpret_cast<HDC>(wParam),flare::Native(flare::Heading));
+        return brush;
+    }
+    case WM_MEASUREITEM:
+        reinterpret_cast<MEASUREITEMSTRUCT*>(lParam)->itemHeight=28;return TRUE;
+    case WM_DRAWITEM:
+        if(launcher_style::DrawControl(*reinterpret_cast<DRAWITEMSTRUCT*>(lParam)))return TRUE;
+        break;
     case WM_CREATE:return 0;
     case WM_COMMAND:
         if(!state)break;
         switch(LOWORD(wParam))
         {
         case ControlNewProject:
-            if(RunNewProjectDialog(*state,false))SetNote(*state,state->strings.status);
+            if(RunNewProjectDialog(*state,false))SetNote(*state,state->strings.selectHint);
             else SetNote(*state,state->strings.createFailed);
             return 0;
         case ControlOpenProject:
@@ -464,31 +527,36 @@ bool CreateControls(LauncherState& state)
     const auto make=[&](const wchar_t* type,const std::wstring& text,DWORD style,int x,int y,int width,int height,int id,HWND& output)
     {
         output=CreateWindowExW(0,type,text.c_str(),style|WS_CHILD|WS_VISIBLE,x,y,width,height,state.window,reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),instance,nullptr);
-        if(output)SendMessageW(output,WM_SETFONT,reinterpret_cast<WPARAM>(state.bodyFont),TRUE);
+        if(output)
+        {
+            SendMessageW(output,WM_SETFONT,reinterpret_cast<WPARAM>(state.bodyFont),TRUE);
+            launcher_style::ThemeControl(output);
+        }
         return output!=nullptr;
     };
-    if(!make(L"STATIC",state.strings.title,SS_LEFT,24,18,WindowWidth-48,36,-1,state.title))return false;
+    HWND brandMark=nullptr;
+    if(!make(L"STATIC",L"",SS_ICON|SS_REALSIZEIMAGE,32,24,56,56,-1,brandMark))return false;
+    SendMessageW(brandMark,STM_SETICON,reinterpret_cast<WPARAM>(AppIcon(56)),0);
+    if(!make(L"STATIC",state.strings.title,SS_LEFT,66,18,WindowWidth-90,36,-1,state.title))return false;
     SendMessageW(state.title,WM_SETFONT,reinterpret_cast<WPARAM>(state.titleFont),TRUE);
-    if(!make(L"STATIC",state.strings.status,SS_LEFT,24,60,WindowWidth-48,22,-1,state.status))return false;
-    const std::wstring environment=state.strings.environment+L" "+Wide(state.locale)+L" | "+state.resourceDirectory.wstring();
-    if(!make(L"STATIC",environment,SS_LEFT|SS_PATHELLIPSIS,24,82,WindowWidth-48,22,-1,state.environment))return false;
     const auto button=[&](const std::wstring& text,int x,int y,int width,int height,int id,bool enabled,HWND& output)
     {
-        if(!make(L"BUTTON",text,BS_PUSHBUTTON|WS_TABSTOP,x,y,width,height,id,output))return false;
+        if(!make(L"BUTTON",text,BS_OWNERDRAW|WS_TABSTOP,x,y,width,height,id,output))return false;
         EnableWindow(output,enabled?TRUE:FALSE);
         return true;
     };
     if(!button(state.strings.newProject,24,116,220,32,ControlNewProject,true,state.newProject))return false;
     if(!button(state.strings.openProject,264,116,220,32,ControlOpenProject,true,state.openProject))return false;
     if(!button(state.strings.openSample,504,116,220,32,ControlOpenSample,true,state.openSample))return false;
-    HWND recentLabel=nullptr;if(!make(L"STATIC",state.strings.recentTitle,SS_LEFT,24,164,WindowWidth-48,22,-1,recentLabel))return false;
-    if(!make(L"LISTBOX",L"",WS_BORDER|WS_VSCROLL|LBS_NOTIFY|LBS_NOINTEGRALHEIGHT|WS_TABSTOP,24,188,700,150,ControlRecentList,state.recentList))return false;
+    if(!make(L"STATIC",state.strings.recentTitle,SS_LEFT,24,164,WindowWidth-48,22,-1,state.recentLabel))return false;
+    if(!make(L"LISTBOX",L"",WS_VSCROLL|LBS_OWNERDRAWFIXED|LBS_HASSTRINGS|LBS_NOTIFY|LBS_NOINTEGRALHEIGHT|WS_TABSTOP,24,188,700,150,ControlRecentList,state.recentList))return false;
     if(!button(state.strings.open,24,348,140,30,ControlRecentOpen,true,state.recentOpen))return false;
     if(!button(state.strings.remove,176,348,140,30,ControlRecentRemove,true,state.recentRemove))return false;
     if(!button(state.strings.relocate,328,348,160,30,ControlRecentRelocate,true,state.recentRelocate))return false;
     if(!button(state.strings.quit,584,348,140,30,ControlQuit,true,state.quit))return false;
     if(!make(L"STATIC",state.strings.selectHint,SS_LEFT,24,390,700,44,-1,state.note))return false;
     RefreshRecent(state);
+    LayoutLauncher(state);
     return true;
 }
 
@@ -525,19 +593,22 @@ int RunLauncherWindow(LauncherState& state,const EditorLaunchOptions& options,st
     windowClass.lpfnWndProc=LauncherProcedure;
     windowClass.hInstance=instance;
     windowClass.hCursor=LoadCursorW(nullptr,reinterpret_cast<LPCWSTR>(IDC_ARROW));
-    windowClass.hbrBackground=reinterpret_cast<HBRUSH>(COLOR_WINDOW+1);
+    windowClass.hbrBackground=nullptr;
     windowClass.lpszClassName=className;
     if(!RegisterClassExW(&windowClass)&&GetLastError()!=ERROR_CLASS_ALREADY_EXISTS)return 5;
     RECT rectangle{0,0,WindowWidth,WindowHeight};
     AdjustWindowRectEx(&rectangle,WS_OVERLAPPEDWINDOW,FALSE,0);
-    state.window=CreateWindowExW(0,className,state.strings.title.c_str(),WS_OVERLAPPEDWINDOW|WS_VISIBLE,
+    state.window=CreateWindowExW(0,className,state.strings.title.c_str(),WS_OVERLAPPEDWINDOW,
         CW_USEDEFAULT,CW_USEDEFAULT,rectangle.right-rectangle.left,rectangle.bottom-rectangle.top,
         nullptr,nullptr,instance,&state);
     if(!state.window)return 5;
-    state.titleFont=CreateFontW(-26,0,0,0,FW_SEMIBOLD,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH|FF_DONTCARE,L"Segoe UI");
-    state.bodyFont=CreateFontW(-16,0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH|FF_DONTCARE,L"Microsoft YaHei UI");
+    ApplyAppIcon(state.window);
+    flare::StyleTitleBar(state.window);
+    state.titleFont=CreateFontW(-30,0,0,0,FW_SEMIBOLD,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH|FF_DONTCARE,L"Segoe UI");
+    state.bodyFont=CreateFontW(-14,0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH|FF_DONTCARE,L"Segoe UI");
     if(!CreateControls(state)){DestroyWindow(state.window);return 5;}
     if(state.safeMode)SetNote(state,state.strings.safeMode);
+    ShowWindow(state.window,SW_SHOW);
     UpdateWindow(state.window);
     FILETIME processCreated{},exited{},kernel{},user{},now{};
     if(GetProcessTimes(GetCurrentProcess(),&processCreated,&exited,&kernel,&user))
@@ -601,7 +672,7 @@ int RunLauncherWindow(LauncherState& state,const EditorLaunchOptions& options,st
         else
         {
             if(GetMessageW(&message,nullptr,0,0)<=0)break;
-            TranslateMessage(&message);DispatchMessageW(&message);
+            if(!IsDialogMessageW(state.window,&message)){TranslateMessage(&message);DispatchMessageW(&message);}
         }
     }
 finished:
@@ -694,7 +765,10 @@ int RunEditorLauncher(const EditorLaunchOptions& options)
     const auto executable=GetExecutableDirectory().wstring();
     if(executable.empty()){ShowError(LauncherStrings::Load({},options.locale),options.uiErrors,L"cannot resolve executable directory");return 5;}
     LauncherState state;
-    state.executable=std::filesystem::path(executable)/L"SelfEngineEditor.exe";
+    wchar_t executableFile[32768]{};
+    const DWORD executableLength=GetModuleFileNameW(nullptr,executableFile,static_cast<DWORD>(std::size(executableFile)));
+    if(!executableLength||executableLength>=std::size(executableFile))return 5;
+    state.executable=executableFile;
     state.resourceDirectory=std::filesystem::path(executable);
     state.locale=options.locale;
     state.safeMode=options.safeMode;

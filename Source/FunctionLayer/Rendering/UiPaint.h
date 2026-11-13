@@ -115,6 +115,8 @@ struct UiGeometryOptions
     float whiteV = 0.0f;
     float whiteWidth = 1.0f;
     float whiteHeight = 1.0f;
+    // 大于零时把文字原点对齐到目标的物理像素，零保持调用方原有的布局行为。
+    Vec2 textPixelScale{};
 };
 
 struct UiGeometryStats

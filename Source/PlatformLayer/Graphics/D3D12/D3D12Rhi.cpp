@@ -6,6 +6,7 @@
 #include "D3D12Presentation.h"
 #include "D3D12Context.h"
 #include "CoreLayer/Localization.h"
+#include "CoreLayer/Log.h"
 #include "CoreLayer/Utf.h"
 #include "CoreLayer/Profiler.h"
 #include "D3D12GpuTimer.h"
@@ -354,6 +355,10 @@ struct CommandContext::Impl
     std::shared_ptr<PipelineEntry> gameUiPipeline;
     GuiGeometry gameUiGeometry;
     std::vector<std::shared_ptr<TextureEntry>> gameUiTextures;
+    std::vector<SceneLine> sceneLines;
+    std::filesystem::path sceneOverlayShader;
+    float sceneLineScale=1;
+    bool sceneGrid=false;
 };
 Device::Device():impl_(std::make_shared<Impl>()){}
 Device::~Device(){Shutdown();}
@@ -723,6 +728,20 @@ Result CommandContext::ConfigureGameUi(PipelineHandle pipeline,const GuiGeometry
     impl_->leases.push_back(program);for(const auto& texture:impl_->gameUiTextures)impl_->leases.push_back(texture);
     return {};
 }
+Result CommandContext::ConfigureSceneOverlay(std::span<const SceneLine> lines,const std::filesystem::path& shader,float scale,bool groundGrid)
+{
+    auto d=impl_?impl_->device.lock():nullptr;
+    if(!d||!d->Usable()||impl_->phase||!impl_->composition||!impl_->sceneOverlayShader.empty())return Fail(Error::InvalidState);
+    if(shader.empty()||!std::isfinite(scale)||scale<=0||scale>8)return Fail(Error::InvalidArgument);
+    if(lines.size()>65536)return Fail(Error::CapacityExceeded);
+    for(const auto& line:lines)
+    {
+        for(float value:{line.a.x,line.a.y,line.a.z,line.b.x,line.b.y,line.b.z,line.color.x,line.color.y,line.color.z,line.color.w,line.width,line.occludedAlpha})
+            if(!std::isfinite(value))return Fail(Error::InvalidArgument);
+        if(line.width<=0||line.width>64||line.occludedAlpha<0||line.occludedAlpha>1)return Fail(Error::InvalidArgument);
+    }
+    impl_->sceneLines.assign(lines.begin(),lines.end());impl_->sceneOverlayShader=shader;impl_->sceneLineScale=scale;impl_->sceneGrid=groundGrid;return {};
+}
 Result CommandContext::ConfigureComposition(const FrameComposition& composition)
 {
     auto d=impl_?impl_->device.lock():nullptr;
@@ -1048,9 +1067,11 @@ Result Device::Submit(CommandContext& commands,CompletionToken& token,Image* cap
     std::vector<D3D12MeshDraw> draws;draws.reserve(c.draws.size());
     for(size_t i=0;i<c.draws.size();++i)
     {const auto& draw=c.draws[i];draws.push_back({&c.geometry[i],draw.world,draw.tint,draw.textureIsData,draw.unlit,draw.pbr,c.instances[i],&c.drawPipelines[i]->mesh,draw.impostorView,draw.impostorNext,draw.impostorBlend,
-        draw.hasPreviousWorld,draw.previousWorld,c.drawPipelines[i]->mesh.prepared->program->source.compressedVertex});}
+        draw.hasPreviousWorld,draw.previousWorld,c.drawPipelines[i]->mesh.prepared->program->source.compressedVertex,draw.outline});}
     // G06.08：批处理对象必须活到 RenderD3D12Frame 返回；这里只做本地借用。
-    D3D12FrameContent content;content.viewProjection=c.viewProjection;content.meshes=draws;content.sourceFrame=c.sourceFrame;content.cacheOpaqueBindings=c.cacheOpaqueBindings;    std::vector<const D3D12Texture*> guiTextures;for(const auto& texture:c.guiTextures)guiTextures.push_back(&texture->native);
+    D3D12FrameContent content;content.viewProjection=c.viewProjection;content.meshes=draws;content.sourceFrame=c.sourceFrame;content.cacheOpaqueBindings=c.cacheOpaqueBindings;
+    content.sceneLines=c.sceneLines;content.sceneOverlayShader=c.sceneOverlayShader;content.sceneLineScale=c.sceneLineScale;content.sceneGrid=c.sceneGrid;
+    std::vector<const D3D12Texture*> guiTextures;for(const auto& texture:c.guiTextures)guiTextures.push_back(&texture->native);
     D3D12GuiContent gui{c.guiScene?c.guiScene->target.get():nullptr,c.guiComposite?c.guiComposite->target.get():nullptr,
         {c.guiPipeline?&c.guiPipeline->mesh:nullptr,&c.guiGeometry,guiTextures}};
     if(c.composition)
@@ -1406,10 +1427,29 @@ Result Device::ExportGpuPassTimingsCsv(const std::filesystem::path& path)
 void Device::Shutdown() noexcept
 {
     if(!impl_)return;
+    LogCheckpoint("GPU.Device.Shutdown.Begin");
     ReleaseD3D12Presentation(impl_->presentation);impl_->ready=false;
+    LogCheckpoint("GPU.ResourcePools.Release.Begin");
     impl_->inFlight.clear();impl_->pending.clear();impl_->retiring.clear();
     impl_->buffers.slots.clear();impl_->textures.slots.clear();impl_->pipelines.slots.clear();
+    LogCheckpoint("GPU.ResourcePools.Release.End");
+    LogCheckpoint("GPU.DeviceContext.Release.Begin");
     impl_->context={};
+    LogCheckpoint("GPU.DeviceContext.Release.End");
+    LogCheckpoint("GPU.Device.Shutdown.End");
+}
+std::vector<std::string> Device::DebugMessages() const
+{
+    std::vector<std::string> result;ComPtr<ID3D12InfoQueue> info;
+    if(!impl_||!impl_->context.device||FAILED(impl_->context.device.As(&info)))return result;
+    for(UINT64 i=0;i<info->GetNumStoredMessagesAllowedByRetrievalFilter();++i)
+    {
+        SIZE_T bytes=0;if(FAILED(info->GetMessage(i,nullptr,&bytes)))continue;
+        std::vector<std::byte> storage(bytes);auto* message=reinterpret_cast<D3D12_MESSAGE*>(storage.data());
+        if(SUCCEEDED(info->GetMessage(i,message,&bytes))&&message->Severity<=D3D12_MESSAGE_SEVERITY_WARNING)
+            result.emplace_back(message->pDescription);
+    }
+    return result;
 }
 ID3D12Device* D3D12DiagnosticsAccess::NativeDevice(Device& d){return d.impl_?d.impl_->context.device.Get():nullptr;}
 ID3D12CommandQueue* D3D12DiagnosticsAccess::Queue(Device& d){return d.impl_?d.impl_->presentation.queue.Get():nullptr;}

@@ -5,6 +5,8 @@
 #include "CoreLayer/Profiler.h"
 #include "FunctionLayer/Rendering/Renderer.h"
 #include "PlatformLayer/Windows/ExecutablePath.h"
+#include "PlatformLayer/Windows/ProcessDiagnostics.h"
+#include "PlatformLayer/Windows/StartupProgress.h"
 #include "PlatformLayer/Windows/FrameTimer.h"
 #include "PlatformLayer/Windows/Window.h"
 #include "PlatformLayer/Windows/WindowsUiInput.h"
@@ -28,6 +30,7 @@ struct SandboxLifetime
     WindowState window{};
     Renderer& renderer;
     bool rendererStarted = false;
+    bool shutdownFinished = false;
     std::unique_ptr<se::WindowsUiInput> uiInput;
     std::function<void()> windowClosing;
 
@@ -35,10 +38,14 @@ struct SandboxLifetime
     ~SandboxLifetime() { Shutdown(); }
     bool Shutdown()
     {
+        if(shutdownFinished)return true;
+        shutdownFinished=true;
         if (rendererStarted)
         {
             rendererStarted = false;
+            LogCheckpoint("Renderer.Shutdown.Begin");
             renderer.Shutdown();
+            LogCheckpoint("Renderer.Shutdown.End");
         }
         uiInput.reset(); // 在 closing 回调可能释放借用的 UI 树之前结束输入适配器。
         window.messageHandler = {};
@@ -55,13 +62,18 @@ struct SandboxLifetime
         }
         // 循环已经结束；此处正常销毁不应遗留 WM_QUIT 使下一次 Play 立即退出。
         window.postQuitOnDestroy = false;
-        return DestroyEngineWindow(window);
+        LogCheckpoint("Window.Destroy.Begin");
+        const bool destroyed=DestroyEngineWindow(window);
+        LogCheckpoint("Window.Destroy.End",destroyed?"success=1":"success=0");
+        return destroyed;
     }
 };
 }
 
 int RunSandboxApp(const std::string& locale, Renderer& renderer, bool showWindow, se::ApplicationServices* services)
 {
+    InitializeProcessDiagnostics("engine");
+    LogCheckpoint("Application.Start");
     Localization localization;
     const auto executableDirectory = GetExecutableDirectory();
     std::string error;
@@ -87,11 +99,14 @@ int RunSandboxApp(const std::string& locale, Renderer& renderer, bool showWindow
     WindowState& window = lifetime.window;
     if (IsDebugLoggingEnabled())
         std::cout << "[Debug] RunSandboxApp 中 window 的地址：" << &window << '\n';
-    if (!CreateEngineWindow(window, showWindow))
+    LogCheckpoint("Window.Create.Begin");
+    bool startupLoading=se::StartupProgressActive();
+    if (!CreateEngineWindow(window, showWindow&&!startupLoading))
     {
         return 1;
     }
 
+    LogCheckpoint("Window.Create.End");
     int exitCode = 0;
     bool loopStarted = false;
     try
@@ -111,11 +126,15 @@ int RunSandboxApp(const std::string& locale, Renderer& renderer, bool showWindow
         };
         lifetime.rendererStarted = true;
         const RenderSurface surface{ window.hwnd, window.width, window.height };
+        LogCheckpoint("Renderer.Initialize.Begin");
+        if(!se::ReportStartup(se::StartupStage::Renderer))return 1;
         if (!renderer.Initialize(surface, localization))
         {
             Log(LogLevel::Error, localization.GetText("App.RendererInitFailed"));
             return 1;
         }
+        LogCheckpoint("Renderer.Initialize.End");
+        if(!se::ReportStartup(se::StartupStage::FirstFrame))return 1;
         FrameTimer timer{};
         if (!InitializeFrameTimer(timer))
         {
@@ -166,7 +185,10 @@ int RunSandboxApp(const std::string& locale, Renderer& renderer, bool showWindow
                 const RenderFrame frame{
                     { window.hwnd, window.width, window.height },
                     updateDeltaSeconds, timer.deltaSeconds, timer.totalSeconds, timer.frameCount, services ? &data : nullptr,profiler };
+                const bool trace=SampleDiagnosticFrame(timer.frameCount);
+                if(trace)LogCheckpoint("Renderer.Frame.Begin",{},timer.frameCount);
                 result = renderer.Render(frame, localization);
+                if(trace||result==RenderResult::Failed)LogCheckpoint("Renderer.Frame.End","result="+std::to_string(static_cast<int>(result)),timer.frameCount);
             }
             window.input.ClearEvents();
             if (result == RenderResult::Failed)
@@ -174,6 +196,15 @@ int RunSandboxApp(const std::string& locale, Renderer& renderer, bool showWindow
                 Log(LogLevel::Error, localization.GetText("App.RendererFrameFailed"));
                 exitCode = 1;
                 break;
+            }
+            if(startupLoading&&window.drawable)
+            {
+                if(se::StartupCancelled())break;
+                // 隐藏窗口的 Present 可以返回 Occluded；此时首帧命令仍已成功提交。
+                // 先显示已绘制的主窗口，再通知监督进程收起加载窗口。
+                if(showWindow){ShowWindow(window.hwnd,SW_SHOW);SetForegroundWindow(window.hwnd);}
+                if(!se::ReportStartup(se::StartupStage::Ready))break;
+                startupLoading=false;
             }
             if (services && services->maximumFrames && timer.frameCount >= services->maximumFrames) break;
             profileFrame.End();
@@ -194,5 +225,6 @@ int RunSandboxApp(const std::string& locale, Renderer& renderer, bool showWindow
     if (!lifetime.Shutdown()) { Log(LogLevel::Error, "窗口销毁失败，退出码置 1"); exitCode = 1; }
     if (window.callbackFailed) exitCode = 1;
     if (loopStarted) Log(LogLevel::Info, localization.GetText("Window.MessageLoopEnded"));
+    LogCheckpoint("Application.End","exit="+std::to_string(exitCode));
     return exitCode;
 }

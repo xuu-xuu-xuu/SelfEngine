@@ -105,8 +105,8 @@ void RecordD3D12ForwardSky(D3D12Presentation& p,D3D12FrameContext& frame,const D
         se::rhi::SkyConstants constants{};
         const auto inverse=se::Inverse(content.viewProjection);
         constants.skyFromClip=inverse.value_or(se::Mat4{});
-        constants.skyFromClip(0,3)=constants.skyFromClip(1,3)=constants.skyFromClip(2,3)=0;
-        constants.skyFromClip(3,0)=constants.skyFromClip(3,1)=constants.skyFromClip(3,2)=0;constants.skyFromClip(3,3)=1;
+        // 逆 VP 含透视除法，直接清最后一列会同时抹掉前向基，导致天空朝地面。
+        // Shader 以远近两点的齐次差消除平移，保持正确的旋转和 FOV。
         const auto clamp01=[](float value){return std::isfinite(value)?std::clamp(value,0.0f,1.0f):0.0f;};
         constants.zenithColor={clamp01(sky.zenithColor.x),clamp01(sky.zenithColor.y),clamp01(sky.zenithColor.z),1};
         constants.horizonColor={clamp01(sky.horizonColor.x),clamp01(sky.horizonColor.y),clamp01(sky.horizonColor.z),1};

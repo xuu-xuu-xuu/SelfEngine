@@ -114,6 +114,7 @@ public:
     void SetViewportHeight(float height);
     void SetScrollOffset(float offset);
     void SetRowTextProvider(std::function<std::string(int)> provider);
+    void SetRowTextColor(UiColor color) { rowTextColor_=color; dirty_=true; }
     // 行背景（颜色）由调用方按行提供；默认透明。
     void SetRowBackgroundProvider(std::function<UiColor(int)> provider) { rowBackground_ = std::move(provider); dirty_ = true; }
     // 内容/行文字变化但 itemCount 不变时显式失效；Sync 只在 dirty 时重建行。
@@ -136,6 +137,7 @@ private:
     int bufferRows_ = 2;
     bool dirty_ = true;
     std::function<std::string(int)> rowText_;
+    UiColor rowTextColor_{0.92f,0.94f,0.97f,1.0f};
     std::function<UiColor(int)> rowBackground_;
     std::vector<UiElementHandle> rows_;
 };

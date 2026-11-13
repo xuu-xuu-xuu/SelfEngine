@@ -3,6 +3,11 @@
 #include "PlatformLayer/InputState.h"
 #include <Windows.h>
 
+// 只在一次消息分发期间存在；Pump 在 TranslateMessage 前记录 IME 原始键码。
+inline constexpr wchar_t WindowsImeVirtualKeyProperty[]=L"SelfEngine.ImeVirtualKey";
+// 未设置=宿主默认；1=快捷键上下文，2=文本输入；只影响 IME 处理键的翻译。
+inline constexpr wchar_t WindowsTextInputModeProperty[]=L"SelfEngine.TextInputMode";
+
 enum class InputMessageResult
 {
     UseDefault, // 未处理，或更新状态后仍需要系统默认行为。

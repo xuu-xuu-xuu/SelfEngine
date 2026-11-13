@@ -2,6 +2,7 @@
 
 #include "ToolLayer/Editor/EditorUi/EditorDockState.h"
 #include "CoreLayer/Localization.h"
+#include "ToolLayer/Editor/FlarePalette.h"
 
 #include <Windows.h>
 #include <cstdlib>
@@ -18,15 +19,59 @@ namespace
 constexpr float kTabHeight = 24.0f;
 constexpr float kMinimumGroupSize = 80.0f;
 
-const UiColor kBackground{0.055f, 0.06f, 0.075f, 1.0f};
-const UiColor kSurface{0.10f, 0.11f, 0.14f, 1.0f};
-const UiColor kSurfaceRaised{0.12f, 0.14f, 0.18f, 1.0f};
-const UiColor kSurfaceActive{0.20f, 0.28f, 0.40f, 1.0f};
-const UiColor kContent{0.07f, 0.08f, 0.10f, 1.0f};
-const UiColor kBorder{0.18f, 0.20f, 0.25f, 1.0f};
-const UiColor kText{0.92f, 0.94f, 0.97f, 1.0f};
-const UiColor kMuted{0.60f, 0.64f, 0.70f, 1.0f};
-const UiColor kAccent{0.31f, 0.55f, 1.0f, 1.0f};
+// UiPainter 接收线性颜色，打包 GUI 顶点时才转成 sRGB。
+UiColor UiInk(flare::Color color, float alpha=1.0f)
+{
+    const auto linear=[](std::uint8_t channel) {
+        const float v=channel/255.0f;
+        return v<=0.04045f ? v/12.92f : std::pow((v+0.055f)/1.055f,2.4f);
+    };
+    return {linear(color.r),linear(color.g),linear(color.b),alpha};
+}
+const auto kBackground = UiInk(flare::Background);
+const auto kSurface = UiInk(flare::Surface);
+const auto kSurfaceRaised = UiInk(flare::Raised);
+const auto kSurfaceActive = UiInk(flare::Selected);
+const auto kContent = kBackground;
+const auto kBorder = UiInk(flare::Border);
+const auto kText = UiInk(flare::Text);
+const auto kMuted = UiInk(flare::Muted);
+const auto kAccent = UiInk(flare::Silver);
+
+std::array<UiRect,2> SplitDockRects(const DockNode& node,const UiRect& rect)
+{
+    const float total=node.axis==DockAxis::Horizontal?rect.width:rect.height;
+    const float minimum=total>0.0f?std::min(0.45f,kMinimumGroupSize/total):0.0f;
+    const float ratio=std::clamp(node.ratio,minimum,1.0f-minimum);
+    std::array<UiRect,2> children{rect,rect};
+    if(node.axis==DockAxis::Horizontal)
+    {
+        children[0].width=rect.width*ratio;
+        children[1].x+=children[0].width;
+        children[1].width-=children[0].width;
+    }
+    else
+    {
+        children[0].height=rect.height*ratio;
+        children[1].y+=children[0].height;
+        children[1].height-=children[0].height;
+    }
+    return children;
+}
+
+UiRect DockPanelRect(const DockNode& node,EditorPanelId panel,const UiRect& rect)
+{
+    if(node.kind==DockNode::Kind::Tabs)
+        return std::find(node.tabs.begin(),node.tabs.end(),panel)!=node.tabs.end()?rect:UiRect{};
+    if(node.children.size()!=2)return {};
+    const auto children=SplitDockRects(node,rect);
+    for(size_t index=0;index<2;++index)
+    {
+        const auto found=DockPanelRect(node.children[index],panel,children[index]);
+        if(found.width>0 && found.height>0)return found;
+    }
+    return {};
+}
 
 UiStyle AbsoluteStyle(float x, float y, float width, float height)
 {
@@ -227,8 +272,10 @@ EditorShell::EditorShell(UiTextService* textService)
       router_(commands_),
       chrome_(router_, commands_),
       dock_(),
-      root_(document_.Root())
+      root_(document_.CreateElement(UiElementKind::Panel))
 {
+    document_.SetParent(root_,document_.Root());
+    dispatcher_.SetInputRoot(root_);
     layout_.SetStyleEngine(&style_);
     chrome_.SetStatus("Ready");
 }
@@ -459,6 +506,7 @@ void EditorShell::BuildPanelContent(PanelSlot& slot)
 {
     const auto makeList = [this, &slot](std::unique_ptr<UiListView>& list) {
         list = std::make_unique<UiListView>(document_, slot.content);
+        list->SetRowTextColor(kText);
         list->SetRowHeight(20.0f);
     };
 
@@ -468,6 +516,12 @@ void EditorShell::BuildPanelContent(PanelSlot& slot)
         makeList(hierarchyList_);
         if (hierarchyList_)
         {
+            hierarchyList_->SetRowBackgroundProvider([this](int index){
+                const auto rows=hierarchyModel_.VisibleRows();
+                return index>=0&&static_cast<std::size_t>(index)<rows.size()&&
+                    hierarchyModel_.Nodes()[rows[index]].id==inspectorModel_.Target()
+                    ?kSurfaceActive:UiColor{0,0,0,0};
+            });
             hierarchyList_->SetRowTextProvider([this](int index) {
                 const auto rows = hierarchyModel_.VisibleRows();
                 if (index < 0 || static_cast<std::size_t>(index) >= rows.size())
@@ -843,7 +897,7 @@ void EditorShell::BuildPanelContent(PanelSlot& slot)
         BuildFormPanel(slot);
         break;
     case EditorPanelId::About:
-        document_.SetText(slot.content, Text("EditorUi.AboutPlaceholder", "SelfEngine Editor"));
+        document_.SetText(slot.content, Text("EditorUi.AboutPlaceholder", "Flare Engine Editor"));
         break;
     case EditorPanelId::Diagnostics:
         document_.SetText(slot.content, Text("EditorUi.DiagnosticsPlaceholder", "Diagnostics pending"));
@@ -875,8 +929,8 @@ void EditorShell::BuildScrollThumb(EditorPanelId panel)
     style.top = UiLength::Px(0.0f);
     style.width = UiLength::Px(4.0f);
     style.height = UiLength::Px(20.0f);
-    style.background = UiColor{0.58f, 0.62f, 0.68f, 0.85f};
-    style.borderColor = UiColor{0.30f, 0.33f, 0.37f, 1.0f};
+    style.background = UiInk(flare::Muted, 0.85f);
+    style.borderColor = kBorder;
     style.borderWidth = 1.0f;
     document_.SetStyle(thumb, style);
     document_.SetVisible(thumb, false);
@@ -1023,6 +1077,7 @@ void EditorShell::BuildFormPanel(PanelSlot& slot)
     listStyle.overflow = UiOverflow::Hidden;
     document_.SetStyle(form.listContent, listStyle);
     form.list = std::make_unique<UiListView>(document_, form.listContent);
+    form.list->SetRowTextColor(kText);
     form.list->SetRowHeight(20.0f);
     form.list->SetRowTextProvider([&form](int index) {
         if (index < 0 || static_cast<std::size_t>(index) >= form.properties.size())
@@ -1737,7 +1792,7 @@ void EditorShell::BuildChrome()
         {
             continue;
         }
-        document_.SetStyle(button, ButtonStyle(toolbarX, 4.0f, width, toolbarHeight_ - 8.0f, kSurfaceActive));
+        document_.SetStyle(button, ButtonStyle(toolbarX, 4.0f, width, toolbarHeight_ - 8.0f, kSurfaceRaised));
         document_.SetText(button, chrome_.Toolbar()[index].label);
         dispatcher_.AddHandler(button, UiEventType::PointerDown, [this, index](UiInputEvent& event) {
             if (!chrome_.ActivateToolbar(index))
@@ -1749,6 +1804,21 @@ void EditorShell::BuildChrome()
         });
         toolbarButtons_.push_back(button);
         toolbarX += width + 4.0f;
+    }
+
+    viewportTools_=document_.CreateElement(UiElementKind::Panel);
+    document_.SetParent(viewportTools_,root_);
+    document_.SetStyle(viewportTools_,AbsoluteStyle(0,0,1,27));
+    const char* actions[]={"Q","W","E","R","X","Z","Sky","Grid","Gizmos","FrameAll"};
+    for(const char* action:actions)
+    {
+        const auto button=document_.CreateElement(UiElementKind::Button);
+        document_.SetParent(button,viewportTools_);
+        dispatcher_.AddHandler(button,UiEventType::PointerDown,[this,action](UiInputEvent& e){
+            if(e.button==0&&viewportAction_)viewportAction_(action);
+            e.handled=true;e.StopPropagation();
+        });
+        viewportToolButtons_.push_back(button);
     }
 
     gizmo_ = document_.CreateElement(UiElementKind::Panel);
@@ -1803,26 +1873,35 @@ void EditorShell::BuildChrome()
     if (document_.SetParent(dragGhost_, root_))
     {
         UiStyle ghostStyle = AbsoluteStyle(0.0f, 0.0f, 220.0f, 24.0f);
-        ghostStyle.background = UiColor{0.20f, 0.28f, 0.40f, 0.95f};
+        ghostStyle.background = UiInk(flare::Selected, 0.95f);
         ghostStyle.borderWidth = 1.0f;
         ghostStyle.borderColor = kAccent;
         ghostStyle.color = kText;
         ghostStyle.fontSize = 13.0f;
-        document_.SetStyle(dragGhost_, ghostStyle);
+        ghostStyle.pointerEvents=UiPointerEvents::None;
+        document_.SetStyle(dragGhost_,ghostStyle);
         document_.SetVisible(dragGhost_, false);
     }
     dropHighlight_ = document_.CreateElement(UiElementKind::Panel);
     if (document_.SetParent(dropHighlight_, root_))
     {
         UiStyle highlight = AbsoluteStyle(0.0f, 0.0f, 0.0f, 0.0f);
-        highlight.background = UiColor{0.31f, 0.55f, 1.0f, 0.20f};
+        highlight.background = UiInk(flare::Silver, 0.20f);
         highlight.borderWidth = 1.0f;
         highlight.borderColor = kAccent;
-        document_.SetStyle(dropHighlight_, highlight);
+        highlight.pointerEvents=UiPointerEvents::None;
+        document_.SetStyle(dropHighlight_,highlight);
         document_.SetVisible(dropHighlight_, false);
     }
+    tabInsertMarker_=document_.CreateElement(UiElementKind::Panel);
+    document_.SetParent(tabInsertMarker_,root_);
+    UiStyle marker=AbsoluteStyle(0,0,2,kTabHeight);
+    marker.background=kAccent;
+    marker.pointerEvents=UiPointerEvents::None;
+    document_.SetStyle(tabInsertMarker_,marker);
+    document_.SetVisible(tabInsertMarker_,false);
 
-    dispatcher_.AddHandler(root_, UiEventType::PointerDown, [this](UiInputEvent& event) {
+    dispatcher_.AddHandler(document_.Root(), UiEventType::PointerDown, [this](UiInputEvent& event) {
         if (closeModalOpen_ || confirmOpen_)
         {
             event.handled = true;
@@ -1849,7 +1928,7 @@ void EditorShell::BuildChrome()
             }
         }
     }, UiEventPhase::Capture);
-    dispatcher_.AddHandler(root_, UiEventType::PointerMove, [this](UiInputEvent& event) {
+    dispatcher_.AddHandler(document_.Root(), UiEventType::PointerMove, [this](UiInputEvent& event) {
         if (closeModalOpen_)
         {
             event.handled = true;
@@ -1861,7 +1940,7 @@ void EditorShell::BuildChrome()
             event.handled = true;
         }
     }, UiEventPhase::Capture);
-    dispatcher_.AddHandler(root_, UiEventType::PointerUp, [this](UiInputEvent& event) {
+    dispatcher_.AddHandler(document_.Root(), UiEventType::PointerUp, [this](UiInputEvent& event) {
         if (closeModalOpen_)
         {
             event.handled = true;
@@ -1873,7 +1952,14 @@ void EditorShell::BuildChrome()
             event.handled = true;
         }
     }, UiEventPhase::Capture);
-    dispatcher_.AddHandler(root_, UiEventType::KeyDown, [this](UiInputEvent& event) {
+    dispatcher_.AddHandler(document_.Root(), UiEventType::KeyDown, [this](UiInputEvent& event) {
+        if(event.key==UiKeyEscape && dragTabPanel_!=EditorPanelId::None)
+        {
+            CancelTabDrag();
+            event.handled=true;
+            event.StopPropagation();
+            return;
+        }
         if (confirmOpen_)
         {
             if (event.key == UiKeyEscape)
@@ -1966,7 +2052,13 @@ void EditorShell::Frame()
     {
         document_.SetParent(confirmBackdrop_, root_);
     }
+    UiStyle mainStyle=document_.Style(root_);
+    mainStyle.position=UiPosition::Absolute;mainStyle.left=UiLength::Px(0);mainStyle.top=UiLength::Px(0);
+    mainStyle.width=UiLength::Px(width_);mainStyle.height=UiLength::Px(height_);
+    document_.SetStyle(root_,mainStyle);
     UpdateDockRects();
+    float layoutWidth=width_,layoutHeight=height_;
+    for(const auto& surface:surfaces_){layoutWidth=std::max(layoutWidth,surface.width);layoutHeight=std::max(layoutHeight,surface.height);}
     const auto panelHeight = [this](EditorPanelId panel) {
         for (const GroupView& group : groups_)
         {
@@ -1993,10 +2085,10 @@ void EditorShell::Frame()
     syncContent(EditorPanelId::Inspector, inspectorList_, 28.0f);
     UpdatePanelContentRects();
     RefreshStatus();
-    layout_.Layout(width_, height_);
+    layout_.Layout(layoutWidth, layoutHeight);
     UpdateScrollThumbs();
     // thumb 的 style 变化发生在首帧尾部；立即消化，避免下一帧空闲时仍报告 layout。
-    layout_.Layout(width_, height_);
+    layout_.Layout(layoutWidth, layoutHeight);
 }
 
 void EditorShell::RebuildGroupViews()
@@ -2008,11 +2100,30 @@ void EditorShell::RebuildGroupViews()
             document_.DestroyElement(group.tabBar);
         }
     }
+    for(const auto& slot:slots_)if(slot.panel.IsValid())document_.SetParent(slot.panel,root_);
+    document_.SetParent(dropHighlight_,root_);
+    document_.SetParent(tabInsertMarker_,root_);
+    document_.SetParent(dragGhost_,root_);
+    document_.SetParent(viewportTools_,root_);
+    std::erase_if(surfaces_,[this](const auto& surface){
+        if(dock_.Surface(surface.id))return false;
+        document_.DestroyElement(surface.root);return true;
+    });
+    for(const auto& window:dock_.Windows())if(!SurfaceRoot(window.id).IsValid())
+    {
+        const auto element=document_.CreateElement(UiElementKind::Panel);
+        document_.SetParent(element,document_.Root());
+        UiStyle style=AbsoluteStyle(0,0,640,440);style.background=kContent;
+        document_.SetStyle(element,style);surfaces_.push_back({window.id,element,640,440});
+    }
     groups_.clear();
-    const auto walk = [this](const auto& self, const DockNode& node, std::vector<std::size_t>& path) -> void {
+    std::uint32_t surface=0;
+    const auto walk = [this,&surface](const auto& self, const DockNode& node, std::vector<std::size_t>& path) -> void {
         if (node.kind == DockNode::Kind::Tabs)
         {
             GroupView group;
+            group.surface=surface;
+            for(const auto panel:node.tabs)document_.SetParent(Slot(panel).panel,SurfaceRoot(surface));
             group.tabs = node.tabs;
             group.active = node.active;
             group.path = path;
@@ -2029,21 +2140,20 @@ void EditorShell::RebuildGroupViews()
     };
     std::vector<std::size_t> path;
     walk(walk, dock_.Root(), path);
+    for(const auto& window:dock_.Windows()){surface=window.id;walk(walk,window.layout,path);}
     // 重新挂到末尾，保证拖影/落点提示绘制在 tab bar 之上。
-    if (dragGhost_.IsValid())
-    {
-        document_.SetParent(dragGhost_, root_);
-    }
     if (dropHighlight_.IsValid())
     {
         document_.SetParent(dropHighlight_, root_);
     }
+    if(tabInsertMarker_.IsValid())document_.SetParent(tabInsertMarker_,root_);
+    if(dragGhost_.IsValid())document_.SetParent(dragGhost_,root_);
 }
 
 void EditorShell::RebuildTabBar(GroupView& group)
 {
     group.tabBar = document_.CreateElement(UiElementKind::Panel);
-    if (!document_.SetParent(group.tabBar, root_))
+    if (!document_.SetParent(group.tabBar, SurfaceRoot(group.surface)))
     {
         return;
     }
@@ -2075,11 +2185,17 @@ void EditorShell::RebuildTabBar(GroupView& group)
         dispatcher_.AddHandler(button, UiEventType::PointerUp, [this](UiInputEvent& event) {
             HandleTabUp(event);
         });
+        dispatcher_.AddHandler(button,UiEventType::PointerCaptureLost,[this](UiInputEvent&) {
+            CancelTabDrag();
+        });
+        dispatcher_.AddHandler(button,UiEventType::FocusLost,[this](UiInputEvent&) {
+            CancelTabDrag();
+        });
         const UiElementHandle close = document_.CreateElement(UiElementKind::Button);
         if (document_.SetParent(close, group.tabBar))
         {
-            document_.SetStyle(close, ButtonStyle(x + width - 18.0f, 2.0f, 16.0f, 20.0f, kSurface));
-            document_.SetText(close, "x");
+            document_.SetStyle(close, ButtonStyle(x + width - 18.0f, 2.0f, 16.0f, 20.0f, UiColor{0,0,0,0}));
+            document_.SetText(close, "×");
             dispatcher_.AddHandler(close, UiEventType::PointerDown, [this, panel](UiInputEvent& event) {
                 dock_.CloseTab(panel);
                 if (activePanel_ == panel)
@@ -2103,7 +2219,8 @@ void EditorShell::UpdateDockRects()
     splitHandles_.clear();
     std::size_t groupIndex = 0;
     std::vector<std::size_t> path;
-    const auto walk = [this, &groupIndex, &path](const auto& self, const DockNode& node,
+    std::uint32_t surface=0;
+    const auto walk = [this, &groupIndex, &path,&surface](const auto& self, const DockNode& node,
                                                  const UiRect& rect) -> void {
         if (node.kind == DockNode::Kind::Tabs)
         {
@@ -2159,21 +2276,13 @@ void EditorShell::UpdateDockRects()
         {
             return;
         }
-        float ratio = node.ratio;
         const float total = node.axis == DockAxis::Horizontal ? rect.width : rect.height;
-        if (total > 0.0f)
-        {
-            const float minimum = std::min(0.45f, kMinimumGroupSize / total);
-            ratio = std::clamp(ratio, minimum, 1.0f - minimum);
-        }
-        UiRect first = rect;
-        UiRect second = rect;
+        const auto children=SplitDockRects(node,rect);
+        const UiRect first=children[0],second=children[1];
         if (node.axis == DockAxis::Horizontal)
         {
-            first.width = rect.width * ratio;
-            second.x = rect.x + first.width;
-            second.width = rect.width - first.width;
             SplitHandle handle;
+            handle.surface=surface;
             handle.path = path;
             handle.axis = DockAxis::Horizontal;
             handle.rect = {second.x - 3.0f, rect.y, 6.0f, rect.height};
@@ -2183,10 +2292,8 @@ void EditorShell::UpdateDockRects()
         }
         else
         {
-            first.height = rect.height * ratio;
-            second.y = rect.y + first.height;
-            second.height = rect.height - first.height;
             SplitHandle handle;
+            handle.surface=surface;
             handle.path = path;
             handle.axis = DockAxis::Vertical;
             handle.rect = {rect.x, second.y - 3.0f, rect.width, 6.0f};
@@ -2202,6 +2309,7 @@ void EditorShell::UpdateDockRects()
         path.pop_back();
     };
     walk(walk, dock_.Root(), dockRect_);
+    for(const auto& window:dock_.Windows()){surface=window.id;walk(walk,window.layout,SurfaceDockRect(surface));}
     // 同步 active 与可见性。
     groupIndex = 0;
     for (EditorPanelId panel : {EditorPanelId::Hierarchy, EditorPanelId::Assets, EditorPanelId::Viewport,
@@ -2217,7 +2325,7 @@ void EditorShell::UpdateDockRects()
     }
     for (GroupView& group : groups_)
     {
-        const DockNode* node = NodeAt(dock_.Root(), group.path);
+        const DockNode* node = NodeAt(*dock_.Surface(group.surface), group.path);
         if (node != nullptr)
         {
             group.active = node->active;
@@ -2385,6 +2493,7 @@ void EditorShell::SetInspector(std::uint64_t id, std::string label, std::vector<
     {
         return;
     }
+    if(id!=inspectorModel_.Target()&&hierarchyList_)hierarchyList_->Invalidate();
     inspectorModel_.SetTarget(id, std::move(label));
     inspectorModel_.SetProperties(std::move(properties));
     if (inspectorList_)
@@ -2551,6 +2660,31 @@ void EditorShell::SetGizmo(float x, float y, bool visible)
 void EditorShell::SetGizmoDragHandler(std::function<void(int, float, float)> handler)
 {
     gizmoDragHandler_ = std::move(handler);
+}
+
+void EditorShell::SetViewportState(int tool,bool local,bool center,bool sky,bool grid,bool gizmos,bool playing)
+{
+    const auto surface=SurfaceRoot(dock_.SurfaceFor(EditorPanelId::Viewport));
+    document_.SetParent(viewportTools_,surface.IsValid()?surface:root_);
+    const auto viewport=layout_.Rect(ViewportPanel());
+    document_.SetVisible(viewportTools_,!playing&&document_.Visible(ViewportPanel()));
+    UiStyle bar=AbsoluteStyle(viewport.x+5,viewport.y+5,std::max(0.f,viewport.width-10),27);
+    bar.background=UiInk(flare::Surface,0.95f);bar.overflow=UiOverflow::Hidden;
+    const std::string labels[]={"Q","W","E","R",Text(local?"EditorUi.LocalSpace":"EditorUi.WorldSpace",local?"Local":"World"),
+        Text(center?"EditorUi.Center":"EditorUi.Pivot",center?"Center":"Pivot"),Text("EditorUi.ViewportSky","Sky"),
+        Text("EditorUi.ViewportGrid","Grid"),Text("EditorUi.ViewportGizmos","Gizmos"),Text("EditorUi.FrameAll","Frame All")};
+    const bool active[]={tool==0,tool==1,tool==2,tool==3,local,center,sky,grid,gizmos,false};
+    float x=0,y=1;
+    for(std::size_t i=0;i<viewportToolButtons_.size();++i)
+    {
+        const float width=i<4?28.f:ToolbarWidth(labels[i]);
+        if(x>0&&x+width>viewport.width-10){x=0;y+=27;}
+        document_.SetText(viewportToolButtons_[i],labels[i]);
+        document_.SetStyle(viewportToolButtons_[i],ButtonStyle(x,y,width,25,active[i]?kSurfaceActive:kSurfaceRaised));
+        x+=width+2;
+    }
+    bar.height=UiLength::Px(y+26);
+    document_.SetStyle(viewportTools_,bar);
 }
 
 void EditorShell::AppendConsoleLine(std::string line)
@@ -3073,11 +3207,11 @@ bool EditorShell::LoadLayout()
     {
         return false;
     }
-    DockNode loaded;
+    EditorDock loaded;
     std::string error;
     if (EditorDockState::Load(layoutPath_, loaded, error))
     {
-        dock_.Root() = std::move(loaded);
+        dock_ = std::move(loaded);
         MarkDockDirty(true, false);
         SetStatus(Text("EditorUi.LayoutLoaded", "Layout loaded"));
         return true;
@@ -3097,7 +3231,7 @@ bool EditorShell::SaveLayout()
         return false;
     }
     std::string error;
-    if (!EditorDockState::Save(dock_.Root(), layoutPath_, error))
+    if (!EditorDockState::Save(dock_, layoutPath_, error))
     {
         SetStatus(Text("EditorUi.LayoutSaveFailed", "Layout save failed") + ": " + error);
         return false;
@@ -3113,8 +3247,59 @@ void EditorShell::SaveLayoutIfConfigured()
     }
 }
 
+std::uint32_t EditorShell::FloatPanel(EditorPanelId panel,int x,int y,int width,int height)
+{
+    const auto id=dock_.FloatTab(panel,x,y,width,height);
+    if(id)MarkDockDirty(true,true);
+    return id;
+}
+void EditorShell::CloseFloatingWindow(std::uint32_t id)
+{if(dock_.CloseWindow(id))MarkDockDirty(true,true);}
+void EditorShell::SetFloatingBounds(std::uint32_t id,int x,int y,int width,int height)
+{if(dock_.SetWindowBounds(id,x,y,width,height))SaveLayoutIfConfigured();}
+void EditorShell::SetSurfaceSize(std::uint32_t id,float width,float height)
+{
+    for(auto& surface:surfaces_)if(surface.id==id)
+    {
+        surface.width=std::max(160.0f,width);surface.height=std::max(120.0f,height);
+        auto style=document_.Style(surface.root);style.width=UiLength::Px(surface.width);style.height=UiLength::Px(surface.height);
+        document_.SetStyle(surface.root,style);return;
+    }
+}
+void EditorShell::SetInputSurface(std::uint32_t id)
+{inputSurface_=id;dispatcher_.SetInputRoot(SurfaceRoot(id));}
+UiElementHandle EditorShell::SurfaceRoot(std::uint32_t id) const
+{
+    if(!id)return root_;
+    for(const auto& surface:surfaces_)if(surface.id==id)return surface.root;
+    return {};
+}
+std::uint32_t EditorShell::SurfaceForElement(UiElementHandle element)const
+{
+    while(const auto* node=document_.Element(element))
+    {
+        if(element==root_)return 0;
+        for(const auto& surface:surfaces_)if(element==surface.root)return surface.id;
+        element=node->Parent();
+    }
+    return 0;
+}
+UiRect EditorShell::SurfaceDockRect(std::uint32_t id) const
+{
+    if(!id)return dockRect_;
+    for(const auto& surface:surfaces_)if(surface.id==id)return {0,0,surface.width,surface.height};
+    return {};
+}
+std::string EditorShell::WindowLabel(std::uint32_t id) const
+{
+    const auto* tree=dock_.Surface(id);if(!tree)return {};
+    while(tree->kind==DockNode::Kind::Split&&!tree->children.empty())tree=&tree->children.front();
+    return PanelLabel(tree->active);
+}
+
 void EditorShell::HandleTabDown(EditorPanelId panel, UiInputEvent& event)
 {
+    if(event.button!=0)return;
     activePanel_ = panel;
     dragTabPanel_ = panel;
     tabDragging_ = false;
@@ -3126,16 +3311,19 @@ void EditorShell::HandleTabDown(EditorPanelId panel, UiInputEvent& event)
         UpdatePanelContentRects();
     }
     event.handled = true;
+    event.StopPropagation();
 }
 
-void EditorShell::HandleTabMove(const UiInputEvent& event)
+void EditorShell::HandleTabMove(UiInputEvent& event)
 {
     if (dragTabPanel_ == EditorPanelId::None)
     {
         return;
     }
-    if (!tabDragging_ &&
-        std::abs(event.x - tabDragStartX_) + std::abs(event.y - tabDragStartY_) > 4.0f)
+    event.handled=true;
+    event.StopPropagation();
+    const float dx=event.x-tabDragStartX_,dy=event.y-tabDragStartY_;
+    if (!tabDragging_ && dx*dx+dy*dy>36.0f)
     {
         tabDragging_ = true;
         if (dragGhost_.IsValid())
@@ -3148,83 +3336,127 @@ void EditorShell::HandleTabMove(const UiInputEvent& event)
     {
         return;
     }
-    if (dragGhost_.IsValid())
-    {
-        UiStyle ghostStyle = document_.Style(dragGhost_);
-        ghostStyle.left = UiLength::Px(event.x + 10.0f);
-        ghostStyle.top = UiLength::Px(event.y + 8.0f);
-        document_.SetStyle(dragGhost_, ghostStyle);
-    }
-    int target = -1;
-    int zone = 0;
+    dropTarget_=EditorPanelId::None;
+    dropZone_=0;
+    dropBefore_=false;
     for (std::size_t index = 0; index < groups_.size(); ++index)
     {
-        const UiRect rect = groups_[index].rect;
+        const auto& group=groups_[index];
+        if(group.surface!=inputSurface_)continue;
+        const UiRect rect = group.rect;
         if (event.x < rect.x || event.x >= rect.x + rect.width ||
             event.y < rect.y || event.y >= rect.y + rect.height)
         {
             continue;
         }
-        target = static_cast<int>(index);
-        if (event.y < rect.y + kTabHeight)
+        const bool onTabs=event.y<rect.y+kTabHeight;
+        if(group.tabs.empty()&&!inputSurface_){dropTarget_=dragTabPanel_;break;}
+        const bool own=std::find(group.tabs.begin(),group.tabs.end(),dragTabPanel_)!=group.tabs.end();
+        if(own && group.tabs.size()==1)break;
+        if(onTabs)
         {
-            zone = 0;
-        }
-        else if (event.x < rect.x + 18.0f)
-        {
-            zone = 1;
-        }
-        else if (event.x > rect.x + rect.width - 18.0f)
-        {
-            zone = 2;
-        }
-        else if (event.y < rect.y + 18.0f)
-        {
-            zone = 3;
-        }
-        else if (event.y > rect.y + rect.height - 18.0f)
-        {
-            zone = 4;
-        }
-        break;
-    }
-    dropGroup_ = target;
-    dropZone_ = zone;
-    if (dropHighlight_.IsValid())
-    {
-        if (target < 0)
-        {
-            document_.SetVisible(dropHighlight_, false);
+            for(size_t tab=0;tab<group.tabs.size();++tab)
+            {
+                if(group.tabs[tab]==dragTabPanel_)continue;
+                dropTarget_=group.tabs[tab];
+                const auto button=layout_.Rect(group.tabButtons[tab]);
+                dropBefore_=event.x<button.x+button.width*0.5f;
+                if(dropBefore_)break;
+            }
         }
         else
         {
-            const UiRect rect = groups_[static_cast<std::size_t>(target)].rect;
-            UiRect highlight = rect;
-            if (zone == 1) highlight.width = rect.width * 0.5f;
-            else if (zone == 2) { highlight.x = rect.x + rect.width * 0.5f; highlight.width = rect.width * 0.5f; }
-            else if (zone == 3) highlight.height = rect.height * 0.5f;
-            else if (zone == 4) { highlight.y = rect.y + rect.height * 0.5f; highlight.height = rect.height * 0.5f; }
-            else highlight = {rect.x, rect.y, rect.width, kTabHeight};
-            UiStyle style = document_.Style(dropHighlight_);
-            style.left = UiLength::Px(highlight.x);
-            style.top = UiLength::Px(highlight.y);
-            style.width = UiLength::Px(highlight.width);
-            style.height = UiLength::Px(highlight.height);
-            document_.SetStyle(dropHighlight_, style);
-            document_.SetVisible(dropHighlight_, true);
+            // 上侧以内容区为起点，避免被 24 DIP 的页签栏吞掉。
+            const float contentTop=rect.y+kTabHeight;
+            const float horizontalBand=std::clamp(rect.width*0.22f,24.0f,64.0f);
+            const float verticalBand=std::clamp((rect.height-kTabHeight)*0.22f,24.0f,64.0f);
+            const float edges[]={event.x-rect.x,rect.x+rect.width-event.x,
+                                 event.y-contentTop,rect.y+rect.height-event.y};
+            const float bands[]={horizontalBand,horizontalBand,verticalBand,verticalBand};
+            float nearest=1.0f;
+            for(int edge=0;edge<4;++edge)
+                if(edges[edge]/bands[edge]<nearest)
+                {
+                    nearest=edges[edge]/bands[edge];
+                    dropZone_=edge+1;
+                }
+            if(own && dropZone_==0)break;
+            if((dropZone_==1 || dropZone_==2) && rect.width<2*kMinimumGroupSize)break;
+            if((dropZone_==3 || dropZone_==4) && rect.height<2*kMinimumGroupSize)break;
+            for(const auto panel:group.tabs)
+                if(panel!=dragTabPanel_)dropTarget_=panel;
         }
+        break;
+    }
+
+    EditorDock preview=dock_;
+    const bool valid=ApplyTabDrop(preview) && preview!=dock_;
+    if(!valid)dropTarget_=EditorPanelId::None;
+    const auto targetRoot=SurfaceRoot(inputSurface_);
+    if(targetRoot.IsValid()){document_.SetParent(dropHighlight_,targetRoot);document_.SetParent(tabInsertMarker_,targetRoot);document_.SetParent(dragGhost_,targetRoot);}
+    document_.SetVisible(dragGhost_,targetRoot.IsValid());
+    document_.SetVisible(dropHighlight_,valid);
+    document_.SetVisible(tabInsertMarker_,valid && dropZone_==0);
+    if(valid)
+    {
+        // 和提交使用同一树变换，再按真实分隔比例计算落点，覆盖空组折叠后的面积。
+        const UiRect rect=DockPanelRect(*preview.Surface(inputSurface_),dragTabPanel_,SurfaceDockRect(inputSurface_));
+        UiStyle style=document_.Style(dropHighlight_);
+        style.left=UiLength::Px(rect.x);style.top=UiLength::Px(rect.y);
+        style.width=UiLength::Px(rect.width);style.height=UiLength::Px(rect.height);
+        document_.SetStyle(dropHighlight_,style);
+        if(dropZone_==0)
+        {
+            float x=rect.x;
+            for(const auto panel:preview.Find(dragTabPanel_)->tabs)
+            {
+                if(panel==dragTabPanel_)break;
+                x+=TabWidth(PanelLabel(panel))+2.0f;
+            }
+            UiStyle marker=document_.Style(tabInsertMarker_);
+            marker.left=UiLength::Px(x);marker.top=UiLength::Px(rect.y+2);
+            marker.height=UiLength::Px(kTabHeight-4);
+            document_.SetStyle(tabInsertMarker_,marker);
+        }
+    }
+    if(dragGhost_.IsValid())
+    {
+        const char* keys[]={"EditorUi.DockMerge","EditorUi.DockLeft","EditorUi.DockRight","EditorUi.DockTop","EditorUi.DockBottom"};
+        const char* labels[]={"Merge as tab","Dock left","Dock right","Dock above","Dock below"};
+        const std::string label=PanelLabel(dragTabPanel_)+(valid?" · "+Text(keys[dropZone_],labels[dropZone_]):"");
+        document_.SetText(dragGhost_,label);
+        UiStyle style=document_.Style(dragGhost_);
+        const auto area=SurfaceDockRect(inputSurface_);
+        const float surfaceWidth=std::max(1.0f,area.width),surfaceHeight=std::max(24.0f,area.y+area.height);
+        const float width=std::min(surfaceWidth,std::max(220.0f,MeasuredWidth(label,13.0f)+16.0f));
+        style.width=UiLength::Px(width);
+        style.left=UiLength::Px(std::clamp(event.x+10,0.0f,surfaceWidth-width));
+        style.top=UiLength::Px(std::clamp(event.y+8,0.0f,surfaceHeight-24.0f));
+        document_.SetStyle(dragGhost_,style);
     }
 }
 
-void EditorShell::HandleTabUp(const UiInputEvent&)
+void EditorShell::HandleTabUp(UiInputEvent& event)
 {
+    if(dragTabPanel_==EditorPanelId::None || event.button!=0)return;
     if (tabDragging_)
     {
-        ApplyTabDrop();
+        HandleTabMove(event);
+        if(inputSurface_==UINT32_MAX&&floatRequest_)floatRequest_(dragTabPanel_);
+        else ApplyTabDrop();
     }
+    event.handled=true;
+    event.StopPropagation();
+    CancelTabDrag();
+}
+
+void EditorShell::CancelTabDrag()
+{
+    const bool tabPressed=dragTabPanel_!=EditorPanelId::None;
     dragTabPanel_ = EditorPanelId::None;
     tabDragging_ = false;
-    dropGroup_ = -1;
+    dropTarget_=EditorPanelId::None;
+    document_.SetVisible(tabInsertMarker_,false);
     if (dragGhost_.IsValid())
     {
         document_.SetVisible(dragGhost_, false);
@@ -3233,48 +3465,25 @@ void EditorShell::HandleTabUp(const UiInputEvent&)
     {
         document_.SetVisible(dropHighlight_, false);
     }
+    if(tabPressed && dispatcher_.PointerCapture().IsValid())dispatcher_.ReleasePointerCapture();
+}
+
+bool EditorShell::ApplyTabDrop(EditorDock& dock) const
+{
+    if(dragTabPanel_==EditorPanelId::None || dropTarget_==EditorPanelId::None)return false;
+    if(!inputSurface_&&dock.Root().kind==DockNode::Kind::Tabs&&dock.Root().tabs.empty())
+    {return dock.CloseTab(dragTabPanel_)&&dock.OpenTab(dragTabPanel_);}
+    if(dropZone_==0)return dock.MoveTab(dragTabPanel_,dropTarget_,dropBefore_);
+    const auto axis=dropZone_<=2?DockAxis::Horizontal:DockAxis::Vertical;
+    return dock.SplitTab(dragTabPanel_,dropTarget_,axis,dropZone_==1 || dropZone_==3);
 }
 
 void EditorShell::ApplyTabDrop()
 {
-    if (dragTabPanel_ == EditorPanelId::None || dropGroup_ < 0 ||
-        static_cast<std::size_t>(dropGroup_) >= groups_.size())
+    EditorDock next=dock_;
+    if(ApplyTabDrop(next) && next!=dock_)
     {
-        return;
-    }
-    GroupView& group = groups_[static_cast<std::size_t>(dropGroup_)];
-    EditorPanelId target = group.active;
-    if (target == EditorPanelId::None && !group.tabs.empty())
-    {
-        target = group.tabs.front();
-    }
-    if (target == EditorPanelId::None || target == dragTabPanel_)
-    {
-        return;
-    }
-    bool changed = false;
-    if (dropZone_ == 0)
-    {
-        changed = dock_.MoveTab(dragTabPanel_, target, false);
-    }
-    else if (dropZone_ == 1)
-    {
-        changed = dock_.SplitTab(dragTabPanel_, target, DockAxis::Horizontal, true);
-    }
-    else if (dropZone_ == 2)
-    {
-        changed = dock_.SplitTab(dragTabPanel_, target, DockAxis::Horizontal, false);
-    }
-    else if (dropZone_ == 3)
-    {
-        changed = dock_.SplitTab(dragTabPanel_, target, DockAxis::Vertical, true);
-    }
-    else
-    {
-        changed = dock_.SplitTab(dragTabPanel_, target, DockAxis::Vertical, false);
-    }
-    if (changed)
-    {
+        dock_=std::move(next);
         activePanel_ = dragTabPanel_;
         MarkDockDirty(true, true);
     }
@@ -3284,12 +3493,14 @@ void EditorShell::BeginSplitter(float x, float y)
 {
     for (const SplitHandle& handle : splitHandles_)
     {
+        if(handle.surface!=inputSurface_)continue;
         if (x < handle.rect.x || x >= handle.rect.x + handle.rect.width ||
             y < handle.rect.y || y >= handle.rect.y + handle.rect.height)
         {
             continue;
         }
         splitterActive_ = 1;
+        splitterSurface_=handle.surface;
         splitterPath_ = handle.path;
         splitterAxis_ = handle.axis;
         splitterStartRatio_ = handle.ratio;
@@ -3309,7 +3520,7 @@ void EditorShell::DragSplitter(float x, float y)
     const float minimum = std::min(0.45f, kMinimumGroupSize / splitterTotal_);
     float ratio = splitterStartRatio_ + (coordinate - splitterStartCoordinate_) / splitterTotal_;
     ratio = std::clamp(ratio, minimum, 1.0f - minimum);
-    if (dock_.SetSplitRatio(splitterPath_, ratio) && initialized_)
+    if (dock_.SetSplitRatio(splitterSurface_,splitterPath_, ratio) && initialized_)
     {
         UpdateDockRects();
         UpdatePanelContentRects();

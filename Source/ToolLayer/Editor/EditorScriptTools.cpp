@@ -270,15 +270,8 @@ bool EditorScriptTools::OpenSource(const fs::path& projectRoot,const fs::path& f
     EditorCodeOpenCommand command;if(!PrepareOpenSource(projectRoot,file,line,column,settings,command,errorKey,detail))return false;
     if(command.useAssociation)
     {
-        SHELLEXECUTEINFOW info{};info.cbSize=sizeof(info);info.fMask=SEE_MASK_NOCLOSEPROCESS|SEE_MASK_FLAG_NO_UI|SEE_MASK_NOASYNC;
-        info.lpVerb=L"open";info.lpFile=command.file.c_str();info.lpDirectory=command.workingDirectory.c_str();info.nShow=SW_SHOWNORMAL;
-        if(!ShellExecuteExW(&info))return Fail(errorKey,detail,"Script.EditorStartFailed",command.file);
-        if(info.hProcess)CloseHandle(info.hProcess);return true;
+        return StartEditorAssociatedFile(command.file,command.workingDirectory,errorKey);
     }
-    STARTUPINFOW startup{};startup.cb=sizeof(startup);startup.dwFlags=STARTF_USESHOWWINDOW;startup.wShowWindow=SW_SHOWNORMAL;
-    PROCESS_INFORMATION process{};auto arguments=BuildProcessCommandLine(command.executable.wstring(),command.arguments);
-    if(!CreateProcessW(command.executable.c_str(),arguments.data(),nullptr,nullptr,FALSE,CREATE_UNICODE_ENVIRONMENT,nullptr,
-        command.workingDirectory.c_str(),&startup,&process))return Fail(errorKey,detail,"Script.EditorStartFailed",command.executable);
-    CloseHandle(process.hThread);CloseHandle(process.hProcess);return true;
+    return StartEditorProcess(command.executable.wstring(),command.arguments,command.workingDirectory,errorKey,true);
 }
 }

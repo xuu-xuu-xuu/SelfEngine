@@ -1,4 +1,5 @@
 #include "ToolLayer/Editor/EditorUi/EditorInputAdapter.h"
+#include "PlatformLayer/Windows/WindowsInput.h"
 
 #include <imm.h>
 
@@ -82,7 +83,16 @@ float EditorInputAdapter::DpiScale() const noexcept
 
 void EditorInputAdapter::SetWindow(HWND window) noexcept
 {
+    if(window_)RemovePropW(window_,WindowsTextInputModeProperty);
     window_ = window;
+    SetTextInputActive(textInputActive_);
+}
+
+EditorInputAdapter::~EditorInputAdapter(){SetWindow(nullptr);}
+void EditorInputAdapter::SetTextInputActive(bool active)noexcept
+{
+    textInputActive_=active;
+    if(window_)SetPropW(window_,WindowsTextInputModeProperty,reinterpret_cast<HANDLE>(static_cast<UINT_PTR>(active?2:1)));
 }
 
 void EditorInputAdapter::ApplyCandidateWindow()
@@ -108,6 +118,9 @@ void EditorInputAdapter::ApplyCandidateWindow()
 bool EditorInputAdapter::Translate(UINT message, WPARAM wparam, LPARAM lparam, UiInputEvent& event)
 {
     event = {};
+    event.shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+    event.control = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+    event.alt = (GetKeyState(VK_MENU) & 0x8000) != 0;
     switch (message)
     {
     case WM_MOUSEMOVE:
@@ -115,10 +128,14 @@ bool EditorInputAdapter::Translate(UINT message, WPARAM wparam, LPARAM lparam, U
     case WM_LBUTTONUP:
     case WM_RBUTTONDOWN:
     case WM_RBUTTONUP:
+    case WM_MBUTTONDOWN:
+    case WM_MBUTTONUP:
+        event.button = (message==WM_RBUTTONDOWN||message==WM_RBUTTONUP)?1:
+            (message==WM_MBUTTONDOWN||message==WM_MBUTTONUP)?2:0;
         event.x = SignedLowWord(lparam) / dpiScale_;
         event.y = SignedHighWord(lparam) / dpiScale_;
         event.type = message == WM_MOUSEMOVE ? UiEventType::PointerMove
-            : (message == WM_LBUTTONDOWN || message == WM_RBUTTONDOWN ? UiEventType::PointerDown
+            : (message == WM_LBUTTONDOWN || message == WM_RBUTTONDOWN || message == WM_MBUTTONDOWN ? UiEventType::PointerDown
                                                                       : UiEventType::PointerUp);
         return true;
     case WM_MOUSEWHEEL:
@@ -129,8 +146,20 @@ bool EditorInputAdapter::Translate(UINT message, WPARAM wparam, LPARAM lparam, U
         return true;
     case WM_KEYDOWN:
     case WM_KEYUP:
-        event.type = message == WM_KEYDOWN ? UiEventType::KeyDown : UiEventType::KeyUp;
+    case WM_SYSKEYDOWN:
+    case WM_SYSKEYUP:
+        event.type = (message == WM_KEYDOWN||message==WM_SYSKEYDOWN) ? UiEventType::KeyDown : UiEventType::KeyUp;
         event.key = static_cast<UiKeyCode>(wparam);
+        if(wparam==VK_PROCESSKEY&&!textInputActive_)
+        {
+            // 到 WndProc 时 TranslateMessage 已执行，ImmGetVirtualKey 可能仍返回 229。
+            // 非文本上下文按原始扫描码恢复字母；文本框保持 IME 原消息和组合流程。
+            UINT scan=static_cast<UINT>((static_cast<DWORD_PTR>(lparam)>>16)&0xff);
+            if((static_cast<DWORD_PTR>(lparam)&(1u<<24))!=0)scan|=0xe000;
+            const UINT captured=window_?static_cast<UINT>(reinterpret_cast<UINT_PTR>(GetPropW(window_,WindowsImeVirtualKeyProperty))):0;
+            const UINT original=captured?captured:MapVirtualKeyExW(scan,MAPVK_VSC_TO_VK_EX,GetKeyboardLayout(0));
+            if(original>='A'&&original<='Z')event.key=original;
+        }
         event.shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
         event.control = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
         event.alt = (GetKeyState(VK_MENU) & 0x8000) != 0;
@@ -204,6 +233,12 @@ bool EditorInputAdapter::Translate(UINT message, WPARAM wparam, LPARAM lparam, U
         compositionActive_ = false;
         composition_.clear();
         event.type = UiEventType::ImeCancel;
+        return true;
+    case WM_KILLFOCUS:
+        event.type=UiEventType::FocusLost;
+        return true;
+    case WM_CAPTURECHANGED:
+        event.type=UiEventType::PointerCaptureLost;
         return true;
     default:
         return false;

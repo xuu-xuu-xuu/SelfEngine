@@ -1,4 +1,4 @@
-﻿param(
+param(
     [ValidateSet('Debug','Release')][string]$Configuration='Debug',
     [Parameter(Mandatory=$true)][string]$Evidence,
     [string]$Package=''
@@ -10,7 +10,7 @@ $engine=if($Package){(Resolve-Path -LiteralPath $Package).Path}else{[IO.Path]::G
 if($Package){$Configuration='Release'}
 $native=if($Package){$engine}else{Join-Path $engine ('out/build/windows-x64-'+$Configuration.ToLowerInvariant())}
 $tool=Join-Path $(if($Package){Join-Path $engine 'Tools'}else{$native}) 'ProjectTool.exe'
-$editor=Join-Path $native 'SelfEngineEditor.exe'
+$editor=Join-Path $native 'FlareEditor.exe'
 $Evidence=[IO.Path]::GetFullPath($Evidence)
 if(Test-Path -LiteralPath $Evidence){throw 'Use a new shared-smoke evidence directory.'}
 New-Item -ItemType Directory -Path $Evidence|Out-Null

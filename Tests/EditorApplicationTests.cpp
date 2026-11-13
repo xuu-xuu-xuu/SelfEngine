@@ -1,6 +1,8 @@
 #include "ToolLayer/Editor/EditorApplication.h"
 #include "ToolLayer/Editor/EditorSession.h"
 #include "ToolLayer/Editor/EditorSessionStore.h"
+#include "ToolLayer/Editor/EditorUi/EditorShell.h"
+#include <nlohmann/json.hpp>
 #include "FunctionLayer/Application/FrameData.h"
 #include "ResourceLayer/Assets/AssetIO.h"
 #include "ResourceLayer/Assets/AssetStore.h"
@@ -35,9 +37,84 @@ public:
     void Shutdown() noexcept override
     {shutdown=true;valid=valid&&IsWindow(window);if(borrowed)valid=valid&&borrowed->Valid&&borrowed->TotalVtxCount>0;}
 };
-int main(int argc,char** argv)
+void ToolkitImportFlow(const std::filesystem::path& parent,const std::filesystem::path& external)
 {
-    const auto project=std::filesystem::absolute(argc>1?argv[1]:".cache/validation/editor-host")/se::asset_io::NewId();
+    namespace fs=std::filesystem;
+    using se::ui::editor::EditorCommandId;
+    const auto require=[](bool ok,const char* message){if(!ok)throw std::runtime_error(message);};
+    const auto root=parent/"toolkit-import",content=root/"Art";
+    const auto incoming=parent/se::asset_io::FromUtf8("外部模型"),source=incoming/external.filename();
+    fs::create_directories(content);fs::create_directories(incoming);
+    fs::copy_file(external,source);
+    // 参考 FBX 有一张外部贴图；用户额外提供的 FBX 以探针得到的真实依赖为准。
+    se::StaticModel original;std::vector<se::AssetDiagnostic> originalDiagnostics;
+    require(se::ImportStaticModel(external,{},original,originalDiagnostics),"original FBX parses");
+    for(const auto& dependency:original.dependencies)
+    {
+        const auto relative=se::asset_io::FromUtf8(dependency);
+        fs::create_directories((incoming/relative).parent_path());
+        fs::copy_file(external.parent_path()/relative,incoming/relative);
+    }
+    {std::ofstream manifest(root/"project.json");manifest<<R"({"format":"SelfEngine.Project","version":1,"name":"Import","contentRoot":"Art","entryScene":"Main.scene.json","scenes":["Main.scene.json"],"ui":[],"assets":[]})";}
+    const auto bad=incoming/"broken.fbx";{std::ofstream file(bad);file<<"invalid FBX";}
+    class ToolkitRenderer final:public Renderer
+    {
+    public:
+        HWND window=nullptr;bool valid=true;int frames=0;
+        bool Initialize(const RenderSurface& surface,const Localization&) override {window=surface.window;return true;}
+        RenderResult Render(const RenderFrame& frame,const Localization&) override
+        {++frames;valid=valid&&frame.data&&frame.data->assets&&frame.data->editorGuiEnabled;return RenderResult::Success;}
+        void Shutdown() noexcept override {}
+    } renderer;
+    se::EditorApplicationHooks hooks;hooks.editorUi="toolkit";
+    fs::path chosen=source;unsigned picks=0;int stage=0;bool selected=false,playingRejected=false;
+    hooks.chooseAssetImportSource=[&](){++picks;return chosen;};
+    hooks.toolkitDrawn=[&](se::ui::editor::EditorShell& shell,se::EditorSession& editor){
+        const auto status=std::string(shell.Document().Text(shell.StatusBar()));
+        const auto import=[&](){return shell.Commands().Execute({EditorCommandId::Import,{}});};
+        if(stage==0)
+        {
+            require(import(),"external FBX import starts");
+            require(!import()&&picks==1,"busy import does not reopen picker");
+            require(!shell.Commands().Execute({EditorCommandId::Play,{}}),"Play waits for import transaction");
+            stage=1;
+        }
+        else if(stage==1&&status.find("Assets imported.")!=std::string::npos)
+        {
+            selected=shell.Document().Text(shell.AssetsPreview()).find(se::asset_io::Utf8(source.filename()))!=std::string_view::npos;
+            require(selected,"successful import auto-selects primary FBX");
+            require(fs::exists(content/source.filename()),"external FBX copied into configured Art root");
+            require(import(),"repeated external import starts validation");stage=2;
+        }
+        else if(stage==2&&status.find("Target file exists")!=std::string::npos)
+        {chosen=bad;require(import(),"invalid FBX starts validation");stage=3;}
+        else if(stage==3&&status.find("source is invalid")!=std::string::npos)
+        {
+            require(!fs::exists(content/bad.filename()),"invalid FBX leaves no copied file");
+            const auto before=picks;require(editor.StartPlay(),"empty runtime can start");
+            playingRejected=!import()&&picks==before;require(playingRejected,"Play rejects import before picker");
+            editor.StopPlay();stage=4;PostMessageW(renderer.window,WM_CLOSE,0,0);
+        }
+    };
+    require(se::RunEditorApp(renderer,"en-US",root,true,600,&hooks)==0,"toolkit import host exits normally");
+    require(renderer.valid&&stage==4&&selected&&playingRejected,"toolkit import workflow completes");
+    se::AssetStore assets(content,root/"out/Cache/Assets");std::vector<se::AssetDiagnostic> diagnostics;
+    require(assets.Scan(diagnostics),"imported store reopens");bool modelFound=false;
+    for(const auto& id:assets.ListIds())if(assets.Resolve(id).filename()==source.filename())
+    {
+        const auto model=assets.LoadModel(id,diagnostics);modelFound=model&&model->meshes.size()==original.meshes.size();
+    }
+    require(modelFound,"registered FBX loads after editor closes");
+    std::ifstream manifest(root/"project.json");nlohmann::json project;manifest>>project;
+    require(!project["assets"].empty(),"project.json declares imported assets");
+    std::vector<std::uint8_t> before,after;
+    require(se::asset_io::Read(source,before)&&se::asset_io::Read(content/source.filename(),after)&&before==after,"FBX bytes preserved after conflict");
+    require(!fs::exists(fs::path(source.wstring()+L".asset.json")),"external source remains untouched");
+    std::cout<<"Toolkit import passed: "<<se::asset_io::Utf8(source.filename())<<", "<<original.meshes.size()<<" meshes, "<<original.dependencies.size()<<" dependencies.\n";
+}
+int wmain(int argc,wchar_t** argv)
+{
+    const auto project=std::filesystem::absolute(argc>1?argv[1]:L".cache/validation/editor-host")/se::asset_io::NewId();
     std::filesystem::create_directories(project/"Assets");
     {std::ofstream file(project/"Assets"/"keep.txt");file<<"unchanged";}
     RecordingRenderer renderer;
@@ -87,6 +164,11 @@ int main(int argc,char** argv)
     {std::ofstream manifest(custom/"project.json");manifest<<"invalid";}
     RecordingRenderer invalidManifest;
     CHECK(se::RunEditorApp(invalidManifest,"en-US",custom,true,2)==1&&invalidManifest.frames==0);
+    try
+    {
+        ToolkitImportFlow(project,std::filesystem::absolute(argc>2?std::filesystem::path(argv[2]):std::filesystem::path("Resources/Samples/Models/Hierarchy.fbx")));
+    }
+    catch(const std::exception& failure){std::cerr<<"Toolkit import failed: "<<failure.what()<<'\n';return 1;}
     std::cout<<"EditorApplicationTests passed (finite hidden host, CPU draw data, shutdown lifetime, read-only startup, failures).\n";
     return 0;
 }

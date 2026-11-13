@@ -55,6 +55,8 @@ public:
     [[nodiscard]] bool FontAtlas(std::vector<unsigned char>& rgba, int& width, int& height, std::uint64_t& revision) const;
     [[nodiscard]] CacheStats Stats() const noexcept;
     void ClearCache();
+    // 字形以物理像素栅格化，布局、光标和命中测试继续使用逻辑坐标。
+    bool SetRasterScale(float pixelsPerDip);
     [[nodiscard]] const std::string& LastError() const noexcept;
 
 private:

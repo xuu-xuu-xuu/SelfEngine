@@ -69,10 +69,10 @@ HRESULT D3D12StateRegistry::BindQueue(ID3D12CommandQueue& queue)
     if(queue.GetDesc().Type!=D3D12_COMMAND_LIST_TYPE_DIRECT)return E_INVALIDARG;
     Microsoft::WRL::ComPtr<ID3D12Device> device;
     if(FAILED(queue.GetDevice(IID_PPV_ARGS(device.GetAddressOf())))||device.Get()!=device_)return E_INVALIDARG;
-    queue_=&queue;return S_OK;
+    queue_=&queue;++queueUsers_;return S_OK;
 }
 void D3D12StateRegistry::UnbindQueue(ID3D12CommandQueue* queue) noexcept
-{if(queue_==queue)queue_=nullptr;}
+{if(queue_==queue&&queueUsers_){--queueUsers_;if(!queueUsers_)queue_=nullptr;}}
 HRESULT D3D12StateRegistry::Register(ID3D12Resource& resource,D3D12_RESOURCE_STATES initial,D3D12TrackedHeap heap,std::string name)
 {
     if(owner_!=std::this_thread::get_id())return E_UNEXPECTED;

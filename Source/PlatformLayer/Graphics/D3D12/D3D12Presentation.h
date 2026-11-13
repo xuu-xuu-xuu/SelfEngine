@@ -17,6 +17,8 @@ struct D3D12PostTargets;
 struct D3D12GuiContent;
 struct D3D12GuiTarget;
 struct D3D12GuiLayer;
+class D3D12SceneOverlay;
+struct D3D12SceneOverlayFrame;
 struct D3D12IndirectBatch;
 // G06.11：RHI 运行时遮挡时间查询。queries 为与 batch.timestamps 相同的 TIMESTAMP 堆；
 // 呈现层记录 prepass 边界与全部间接绘制结束，RHI 在 Fence 完成后读取。
@@ -65,6 +67,7 @@ struct D3D12FrameContext
     D3D12FrameDescriptors postDescriptors;
     D3D12FrameDescriptors guiDescriptors;
     D3D12FrameDescriptors gameUiDescriptors;
+    std::shared_ptr<D3D12SceneOverlayFrame> sceneOverlay;
     std::shared_ptr<D3D12ShadowTarget> shadow;
     bool timestampShadow=false;
     bool timestampPost=false,timestampBloom=false,timestampToneMapping=false,timestampFxaa=false,timestampUi=false;
@@ -97,6 +100,10 @@ struct D3D12FrameContent
     const D3D12GuiTarget* sceneHdr=nullptr;
     const D3D12GuiTarget* sceneLdr=nullptr;
     const D3D12GuiLayer* gameUi=nullptr;
+    std::span<const se::rhi::SceneLine> sceneLines;
+    std::filesystem::path sceneOverlayShader;
+    float sceneLineScale=1;
+    bool sceneGrid=false;
     // G06.10：多批次遮挡；与 content.meshes 一一对应，空表示普通绘制。
     const D3D12IndirectBatch* indirects=nullptr;
     std::size_t indirectCount=0;
@@ -114,6 +121,7 @@ struct D3D12Presentation
 
     // 提交后的常规退出先调用显式释放函数，确认 GPU 不再使用这些资源。
     Microsoft::WRL::ComPtr<ID3D12CommandQueue> queue;
+    bool stateQueueBound=false;
     Microsoft::WRL::ComPtr<IDXGISwapChain3> swapChain;
     std::shared_ptr<D3D12DescriptorRange> rtvs,gameUiRtvs,dsv;
     std::shared_ptr<D3D12DescriptorRange> hdrRtv,hdrSrv;
@@ -128,6 +136,7 @@ struct D3D12Presentation
     Microsoft::WRL::ComPtr<ID3D12Resource> depth;
     std::array<Microsoft::WRL::ComPtr<ID3D12Resource>, bufferCount> backBuffers;
     std::array<D3D12FrameContext, frameCount> frames;
+    std::shared_ptr<D3D12SceneOverlay> sceneOverlay;
     Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> commandList;
     Microsoft::WRL::ComPtr<ID3D12Fence> fence;
     Microsoft::WRL::Wrappers::Event fenceEvent;

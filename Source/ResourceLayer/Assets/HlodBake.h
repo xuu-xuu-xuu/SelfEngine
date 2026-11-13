@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <string>
 #include <vector>
+#include <stop_token>
 
 namespace se
 {
@@ -55,5 +56,5 @@ bool BakeHlod(const std::vector<HlodInstance>& instances,float cellSize,HlodScen
     std::vector<AssetDiagnostic>& diagnostics,std::vector<HlodCellCoordinate>* assignments=nullptr);
 // .sehlod：magic/版本 + 单元坐标/包围球/误差 + 材质与世界空间顶点/索引；读取时完整校验。
 bool WriteHlodScene(const std::filesystem::path& path,const HlodScene& scene,std::string& error);
-bool ReadHlodScene(const std::filesystem::path& path,HlodScene& output,std::string& error);
+bool ReadHlodScene(const std::filesystem::path& path,HlodScene& output,std::string& error,std::stop_token stop={});
 }

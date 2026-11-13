@@ -9,13 +9,14 @@ namespace se
 class EditorRenderer final:public Renderer
 {
 public:
-    EditorRenderer();
+    explicit EditorRenderer(std::filesystem::path resources={});
     bool Initialize(const RenderSurface& surface,const Localization& localization) override;
     RenderResult Render(const RenderFrame& frame,const Localization& localization) override;
     EditorRenderView QueryEditorView() const override;
     void Shutdown() noexcept override;
     SandboxDrawStatistics DrawStatistics()const{return renderer_.DrawStatistics();}
     rhi::Statistics Statistics()const{return renderer_.Statistics();}
+    std::vector<std::string> DebugMessages()const{return renderer_.DebugMessages();}
     rhi::AdapterInformation Adapter()const{return renderer_.Adapter();}
     void SetCaptureOutput(std::filesystem::path path,std::uint64_t frame){renderer_.SetCaptureOutput(std::move(path),frame);}
     bool CaptureSucceeded()const noexcept{return renderer_.CaptureSucceeded();}

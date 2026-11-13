@@ -1,10 +1,12 @@
 #include "D3D12PipelineCache.h"
+#include "D3D12PipelineLibraryStorage.h"
 #include "D3D12Triangle.h"
 #include "D3D12Result.h"
 #include "PlatformLayer/Graphics/MaterialLayout.h"
 #include "CoreLayer/Hash.h"
 #include "CoreLayer/Localization.h"
 #include "CoreLayer/Log.h"
+#include <d3d12sdklayers.h>
 #include <algorithm>
 #include <thread>
 #include <unordered_map>
@@ -25,7 +27,6 @@ struct D3D12PipelineCache::Impl
     D3D12PipelineCacheStatistics stats;
     ComPtr<ID3D12Device1> device1;
     ComPtr<ID3D12PipelineLibrary> library;
-    std::vector<char> libraryBlob; // CreatePipelineLibrary 期间保活输入缓存。
     std::filesystem::path libraryPath;
     bool libraryDirty=false;
     explicit Impl(ID3D12Device& value):device(&value){}
@@ -36,6 +37,10 @@ D3D12PipelineCache::D3D12PipelineCache(ID3D12Device& device):impl_(std::make_uni
     return; // Debug 层与 PSO 库同时启用会产生校验告警；持久库只在 Release 生效。
 #endif
     auto& p=*impl_;
+    // 验证程序也可能在 Release 进程中显式启用调试层；按实际设备判断，
+    // 避免把持久库未命中的正常回退记录为 GPU 调试错误。
+    ComPtr<ID3D12InfoQueue> debugQueue;
+    if(SUCCEEDED(device.QueryInterface(IID_PPV_ARGS(debugQueue.GetAddressOf()))))return;
     if(FAILED(device.QueryInterface(IID_PPV_ARGS(p.device1.GetAddressOf()))))return;
     std::error_code error;
     const auto directory=std::filesystem::current_path(error)/".cache"/"pso";
@@ -48,18 +53,22 @@ D3D12PipelineCache::D3D12PipelineCache(ID3D12Device& device):impl_(std::make_uni
     static constexpr const char* libraryVersion="v3";
     std::ostringstream name;name<<"library-"<<libraryVersion<<"-"<<std::hex<<luid.HighPart<<"-"<<luid.LowPart<<".bin";
     p.libraryPath=directory/name.str();
-    std::vector<char> blob;
     if(std::filesystem::exists(p.libraryPath,error)&&!error)
     {
         std::ifstream input(p.libraryPath,std::ios::binary);
-        p.libraryBlob.assign(std::istreambuf_iterator<char>(input),std::istreambuf_iterator<char>());
-        if(!p.libraryBlob.empty()&&SUCCEEDED(p.device1->CreatePipelineLibrary(p.libraryBlob.data(),p.libraryBlob.size(),IID_PPV_ARGS(p.library.GetAddressOf()))))
-            p.stats.libraryLoaded=true;
+        auto blob=std::make_shared<std::vector<char>>(std::istreambuf_iterator<char>(input),std::istreambuf_iterator<char>());
+        if(!blob->empty()&&SUCCEEDED(p.device1->CreatePipelineLibrary(blob->data(),blob->size(),IID_PPV_ARGS(p.library.GetAddressOf()))))
+        {
+            if(SUCCEEDED(RetainD3D12PipelineLibraryStorage(*p.library.Get(),blob)))p.stats.libraryLoaded=true;
+            else p.library.Reset(); // 缓冲仍活着时先释放库，随后回退空库。
+        }
     }
     if(!p.library)p.device1->CreatePipelineLibrary(nullptr,0,IID_PPV_ARGS(p.library.GetAddressOf()));
 }
 D3D12PipelineCache::~D3D12PipelineCache()
 {
+    LogCheckpoint("GPU.PipelineCache.Release.Begin");
+    struct Finish{std::unique_ptr<Impl>& value;~Finish(){value.reset();LogCheckpoint("GPU.PipelineCache.Release.End");}} finish{impl_};
 #ifndef NDEBUG
     return;
 #endif
@@ -67,6 +76,8 @@ D3D12PipelineCache::~D3D12PipelineCache()
     if(!p.library||!p.libraryDirty||p.libraryPath.empty())return;
     try
     {
+        LogCheckpoint("GPU.PipelineCache.Serialize.Begin");
+        struct Serialized{~Serialized(){LogCheckpoint("GPU.PipelineCache.Serialize.End");}} serialized;
         const SIZE_T size=p.library->GetSerializedSize();
         if(!size)return;
         std::vector<char> blob(size);
@@ -205,10 +216,13 @@ std::shared_ptr<const D3D12PreparedPipeline> D3D12PipelineCache::Prepare(const r
     pipeline.DSVFormat=mesh||pipeline.DepthStencilState.DepthEnable?DXGI_FORMAT_D32_FLOAT:DXGI_FORMAT_UNKNOWN;pipeline.SampleDesc={1,0};
     // G02.04：本机 Release 实测受光照/阴影/环境的 HDR 管线库条目经 LoadGraphicsPipeline
     // 加载后，即使 GetCachedBlob 与新建 PSO 完全一致，也会使后续采样错 1 像素。
-    // 这三类 kind 跳过库加载并新建 PSO；其余 kind 继续命中持久库。
+    // 这些 kind 跳过库加载并新建 PSO；其余 kind 继续命中持久库。
+    // GUI 的同类问题已由真实像素回归复现：旧库加载后场景 sRGB 采样变为
+    // 79/118/154，重新创建为正确的 20/46/82。保留进程内缓存，GUI 不读写持久库。
     const bool libraryLoadAllowed=description.kind!=rhi::PipelineKind::ShadowedMesh
         &&description.kind!=rhi::PipelineKind::EnvironmentMesh
-        &&description.kind!=rhi::PipelineKind::EnvironmentSky;
+        &&description.kind!=rhi::PipelineKind::EnvironmentSky
+        &&description.kind!=rhi::PipelineKind::Gui;
     if(p.library&&libraryLoadAllowed&&!prepared->pipeline
         &&SUCCEEDED(p.library->LoadGraphicsPipeline(libraryName.c_str(),&pipeline,IID_PPV_ARGS(prepared->pipeline.GetAddressOf()))))
         ++p.stats.libraryHits;
@@ -216,7 +230,7 @@ std::shared_ptr<const D3D12PreparedPipeline> D3D12PipelineCache::Prepare(const r
     {
         if(!CheckGraphicsResult(p.device->CreateGraphicsPipelineState(&pipeline,IID_PPV_ARGS(prepared->pipeline.GetAddressOf())),text,"D3D12.CreatePipelineFailed"))return {};
         ++p.stats.pipelineCreations;
-        if(p.library&&SUCCEEDED(p.library->StorePipeline(libraryName.c_str(),prepared->pipeline.Get()))){++p.stats.libraryStores;p.libraryDirty=true;}
+        if(p.library&&description.kind!=rhi::PipelineKind::Gui&&SUCCEEDED(p.library->StorePipeline(libraryName.c_str(),prepared->pipeline.Get()))){++p.stats.libraryStores;p.libraryDirty=true;}
     }
     prepared->rootSignature->SetName(L"SelfEngine.PreparedRootSignature");prepared->pipeline->SetName(L"SelfEngine.PreparedPipeline");
     p.livePipelines.push_back(prepared);if(description.cachePrepared)p.pipelines.insert_or_assign(key,prepared);return prepared;

@@ -16,10 +16,12 @@ class EditorInputAdapter
 {
 public:
     explicit EditorInputAdapter(float dpiScale = 1.0f);
+    ~EditorInputAdapter();
 
     void SetDpiScale(float scale);
     [[nodiscard]] float DpiScale() const noexcept;
     void SetWindow(HWND window) noexcept;
+    void SetTextInputActive(bool active)noexcept;
 
     bool Translate(UINT message, WPARAM wparam, LPARAM lparam, UiInputEvent& event);
 
@@ -33,6 +35,7 @@ private:
     float dpiScale_ = 1.0f;
     HWND window_ = nullptr;
     bool compositionActive_ = false;
+    bool textInputActive_ = false;
     std::string composition_;
     UiImeCandidateAnchor candidateAnchor_{};
 };

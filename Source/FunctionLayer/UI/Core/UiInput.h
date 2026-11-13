@@ -61,6 +61,7 @@ struct UiInputEvent
     float x = 0.0f;
     float y = 0.0f;
     float wheel = 0.0f;
+    std::uint8_t button = 0; // 0 左键、1 右键、2 中键；移动事件由捕获者解释。
     UiKeyCode key = 0;
     bool shift = false;
     bool control = false;
@@ -90,6 +91,7 @@ public:
     UiHitTest(UiDocument& document, UiLayoutEngine& layout, UiStyleEngine* styleEngine = nullptr);
 
     [[nodiscard]] UiHitResult Hit(float x, float y) const;
+    [[nodiscard]] UiHitResult Hit(UiElementHandle root,float x,float y) const;
 
 private:
     [[nodiscard]] bool HitNode(UiElementHandle element, float x, float y, const UiRect& clip,
@@ -118,6 +120,8 @@ public:
 
     // 返回是否找到目标并完成分发；无目标返回 false。
     bool Dispatch(UiInputEvent& event);
+    // 多原生窗口共用文档时，仅在当前表面命中及遍历 Tab 焦点；捕获仍跨表面有效。
+    void SetInputRoot(UiElementHandle root);
 
     void SetFocus(UiElementHandle element);
     [[nodiscard]] UiElementHandle Focus() const noexcept;

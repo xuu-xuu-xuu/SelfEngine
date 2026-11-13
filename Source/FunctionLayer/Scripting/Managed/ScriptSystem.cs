@@ -305,7 +305,7 @@ public sealed class ScriptSystem : IDisposable
         try {using var scope=Session.EnterSceneCallbackScope(entry.Scene,entry.Native.Handle);action();}
         catch (Exception exception)
         {
-            Report(entry.Value, "Script.CallbackFailed", exception.GetType().Name + ": " + exception.Message, phase);
+            Report(entry.Value, "Script.CallbackFailed", exception.ToString(), phase);
             if (disableOnError)
             {
                 entry.Faulted = true;

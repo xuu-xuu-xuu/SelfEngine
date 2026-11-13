@@ -1,6 +1,7 @@
 #include "ToolLayer/Editor/ImGuiEditor.h"
 #include "ToolLayer/Editor/EditorDockLayout.h"
 #include "ToolLayer/Editor/EditorTheme.h"
+#include "ToolLayer/Editor/FlarePalette.h"
 #include "ResourceLayer/Assets/AssetIO.h"
 #include <imgui/imgui_internal.h>
 #include <cmath>
@@ -77,7 +78,9 @@ int main(int argc,char** argv)
     std::string backup;{std::ifstream file(fs::path(se::EditorDockLayout::BackupPath(directory/"broken.ini")),std::ios::binary);backup.assign(std::istreambuf_iterator<char>(file),{});}
     CHECK(backup=="not a valid docking layout");
     ImGuiStyle style;se::ApplyEditorTheme(style);
-    CHECK(style.Colors[ImGuiCol_WindowBg].x*255.0f>50&&style.Colors[ImGuiCol_TabSelectedOverline].z>0.5f&&style.WindowPadding.x==6&&style.FramePadding.y==3);
+    CHECK(style.Colors[ImGuiCol_WindowBg].x==se::flare::Rgba<ImVec4>(se::flare::Background).x);
+    CHECK(style.Colors[ImGuiCol_TabSelectedOverline].z==se::flare::Rgba<ImVec4>(se::flare::Silver).z);
+    CHECK(style.WindowPadding.x==6&&style.FramePadding.y==3);
     std::string error;CHECK(se::EditorDockLayout::Validate("[Docking][Data]\n",error));
     CHECK(!se::EditorDockLayout::Validate("garbage",error)&&error=="Editor.DockLayoutInvalid");
     std::cout<<"EditorDockingTests passed (3x2 default, ini persistence, corrupt fallback, Unity theme).\n";

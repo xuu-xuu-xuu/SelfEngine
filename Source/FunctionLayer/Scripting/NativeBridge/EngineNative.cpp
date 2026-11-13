@@ -13,7 +13,9 @@
 #include "PlatformLayer/InputState.h"
 #include "CoreLayer/Localization.h"
 #include "CoreLayer/Log.h"
+#include "PlatformLayer/Windows/ProcessDiagnostics.h"
 #include "ToolLayer/Editor/EditorApplication.h"
+#include "ToolLayer/Editor/EditorRenderer.h"
 #include "ToolLayer/Editor/EditorSession.h"
 #include "ToolLayer/Editor/ImGuiEditor.h"
 #include "ResourceLayer/Assets/AssetStore.h"
@@ -466,6 +468,8 @@ int32_t SE_CALL se_get_last_error(char* buffer, uint32_t capacity, uint32_t* req
 }
 int32_t SE_CALL se_session_create(SE_Session* output) noexcept
 {
+    InitializeProcessDiagnostics("managed-native");
+    LogCheckpoint("Native.Session.Create.Begin");
     return Protect([&]() -> int32_t {
         if (!output) return Error(SE_INVALID_ARGUMENT, "Bridge.InvalidArgument");
         *output = 0;
@@ -476,6 +480,7 @@ int32_t SE_CALL se_session_create(SE_Session* output) noexcept
         if (index == slots.size()) slots.emplace_back();
         const auto created=(static_cast<uint64_t>(slots[index].generation)<<32)|(index+1);
         SceneServices(*session,created);slots[index].value=std::move(session);*output=created;
+        LogCheckpoint("Native.Session.Create.End");
         return SE_OK;
     });
 }
@@ -486,10 +491,12 @@ int32_t SE_CALL se_session_close(SE_Session handle) noexcept
         if (!session) return SE_INVALID_HANDLE;
         if (session->stepping || session->windowRunning) return Error(SE_BUSY, "Bridge.SessionBusy");
         Slot& slot = slots[static_cast<uint32_t>(handle) - 1];
+        LogCheckpoint("Native.Session.Close.Begin");
         session->Env().BeginShutdown();
         CloseEventPublishers(handle);
         slot.value.reset();
         if (slot.generation != UINT32_MAX) ++slot.generation;
+        LogCheckpoint("Native.Session.Close.End");
         return SE_OK;
     });
 }
@@ -946,7 +953,7 @@ int32_t SE_CALL se_session_run_editor(SE_Session handle,const char* root,uint32_
         };
         hooks.inspector=[s,handle](uint64_t entity,bool playing){DrawScriptInspector(handle,*s,entity,playing);};
         hooks.closing=[s](se::EditorSession& editor,se::UiTree& ui){s->environment.Clear();s->world=editor.EditWorld();s->environment.Scenes().SynchronizeIdle();s->ui=ui;s->editor=nullptr;};
-        SandboxRenderer renderer(SandboxScene::Scene,resources);int exitCode=1;
+        se::EditorRenderer renderer(resources);int exitCode=1;
         const auto captureFile=EditorEnvironmentPath(L"SELFENGINE_EDITOR_CAPTURE_FILE");
         if(!captureFile.empty())
         {

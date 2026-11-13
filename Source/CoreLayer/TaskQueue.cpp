@@ -1,4 +1,5 @@
 #include "TaskQueue.h"
+#include "Log.h"
 #include <algorithm>
 #include <stdexcept>
 
@@ -184,6 +185,7 @@ void TaskQueue::Shutdown()
 }
 void TaskQueue::StopWorkers()
 {
+    LogCheckpoint("Tasks.Shutdown.Begin","workers="+std::to_string(workers_.size()));
     std::deque<Job> abandonedJobs;
     std::deque<Ready> abandonedReady;
     {
@@ -205,8 +207,10 @@ void TaskQueue::StopWorkers()
     }
     wake_.notify_all();
     changed_.notify_all();
-    for (auto& worker : workers_) if (worker.joinable()) worker.join();
+    for (auto& worker : workers_) if (worker.joinable())
+    {LogCheckpoint("Tasks.Worker.Join.Begin");worker.join();LogCheckpoint("Tasks.Worker.Join.End");}
     workers_.clear();
+    LogCheckpoint("Tasks.Shutdown.End");
 }
 
 std::size_t TaskQueue::Pending() const

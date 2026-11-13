@@ -18,6 +18,21 @@ DockNode MakeTabs(std::initializer_list<EditorPanelId> panels)
     return node;
 }
 
+bool CollapseEmptyGroups(DockNode& node)
+{
+    if(node.kind==DockNode::Kind::Tabs)return node.tabs.empty();
+    if(node.children.size()!=2)return false;
+    const bool firstEmpty=CollapseEmptyGroups(node.children[0]);
+    const bool secondEmpty=CollapseEmptyGroups(node.children[1]);
+    if(firstEmpty && secondEmpty)node=MakeTabs({});
+    else if(firstEmpty || secondEmpty)
+    {
+        DockNode remaining=std::move(node.children[firstEmpty?1:0]);
+        node=std::move(remaining);
+    }
+    return firstEmpty && secondEmpty;
+}
+
 // 查找 target 叶子的父节点与索引；target 为根时返回 false。
 bool FindParentOfLeaf(DockNode& node, const DockNode* target, DockNode*& parent, std::size_t& index)
 {
@@ -114,6 +129,7 @@ bool EditorPanelFromName(std::string_view name, EditorPanelId& panel) noexcept
 EditorDock::EditorDock(DockNode root)
     : root_(std::move(root))
 {
+    Normalize();
 }
 
 const DockNode& EditorDock::Root() const noexcept
@@ -173,12 +189,14 @@ const DockNode* EditorDock::Find(EditorPanelId panel) const noexcept
         }
         return nullptr;
     };
-    return visit(visit, root_);
+    if(const auto* found=visit(visit, root_))return found;
+    for(const auto& window:windows_)if(const auto* found=visit(visit,window.layout))return found;
+    return nullptr;
 }
 
 bool EditorDock::SelectTab(EditorPanelId panel)
 {
-    DockNode* node = FindNode(root_, panel);
+    DockNode* node = FindMutable(panel);
     if (!node)
     {
         return false;
@@ -189,7 +207,7 @@ bool EditorDock::SelectTab(EditorPanelId panel)
 
 bool EditorDock::CloseTab(EditorPanelId panel)
 {
-    DockNode* node = FindNode(root_, panel);
+    DockNode* node = FindMutable(panel);
     if (!node)
     {
         return false;
@@ -209,12 +227,13 @@ bool EditorDock::CloseTab(EditorPanelId panel)
     {
         node->active = node->tabs[std::min(index, node->tabs.size() - 1)];
     }
+    Normalize();
     return true;
 }
 
 bool EditorDock::OpenTab(EditorPanelId panel)
 {
-    if (panel == EditorPanelId::None || FindNode(root_, panel))
+    if (panel == EditorPanelId::None || FindMutable(panel))
     {
         return false;
     }
@@ -258,11 +277,11 @@ bool EditorDock::OpenTab(EditorPanelId panel)
 
 bool EditorDock::OpenTabNear(EditorPanelId panel, EditorPanelId near)
 {
-    if (panel == EditorPanelId::None || FindNode(root_, panel))
+    if (panel == EditorPanelId::None || FindMutable(panel))
     {
         return false;
     }
-    DockNode* destination = FindNode(root_, near);
+    DockNode* destination = FindMutable(near);
     if (destination == nullptr || destination->kind != DockNode::Kind::Tabs)
     {
         return OpenTab(panel);
@@ -278,8 +297,8 @@ bool EditorDock::MoveTab(EditorPanelId panel, EditorPanelId target, bool before)
     {
         return false;
     }
-    DockNode* source = FindNode(root_, panel);
-    DockNode* destination = FindNode(root_, target);
+    DockNode* source = FindMutable(panel);
+    DockNode* destination = FindMutable(target);
     if (source == nullptr || destination == nullptr)
     {
         return false;
@@ -300,7 +319,7 @@ bool EditorDock::MoveTab(EditorPanelId panel, EditorPanelId target, bool before)
     {
         source->active = source->tabs[std::min(sourceIndex, source->tabs.size() - 1)];
     }
-    destination = FindNode(root_, target);
+    destination = FindMutable(target);
     if (destination == nullptr)
     {
         return false;
@@ -320,6 +339,7 @@ bool EditorDock::MoveTab(EditorPanelId panel, EditorPanelId target, bool before)
         destination->tabs.insert(destination->tabs.begin() + static_cast<std::ptrdiff_t>(insertIndex + 1), panel);
     }
     destination->active = panel;
+    Normalize();
     return true;
 }
 
@@ -329,8 +349,8 @@ bool EditorDock::SplitTab(EditorPanelId panel, EditorPanelId target, DockAxis ax
     {
         return false;
     }
-    DockNode* source = FindNode(root_, panel);
-    DockNode* destination = FindNode(root_, target);
+    DockNode* source = FindMutable(panel);
+    DockNode* destination = FindMutable(target);
     if (source == nullptr || destination == nullptr)
     {
         return false;
@@ -346,11 +366,11 @@ bool EditorDock::SplitTab(EditorPanelId panel, EditorPanelId target, DockAxis ax
         source->active = source->tabs.empty() ? EditorPanelId::None : source->tabs.front();
     }
 
-    destination = FindNode(root_, target);
+    destination = FindMutable(target);
     if (destination == nullptr || destination->kind != DockNode::Kind::Tabs)
     {
         // target 已随源组移除等异常情况，回退到第一个可用叶子。
-        destination = FindNode(root_, target);
+        destination = FindMutable(target);
         if (destination == nullptr)
         {
             return false;
@@ -366,7 +386,8 @@ bool EditorDock::SplitTab(EditorPanelId panel, EditorPanelId target, DockAxis ax
 
     DockNode* parent = nullptr;
     std::size_t index = 0;
-    const bool hasParent = FindParentOfLeaf(root_, destination, parent, index);
+    DockNode& targetRoot=*Surface(SurfaceFor(target));
+    const bool hasParent = FindParentOfLeaf(targetRoot, destination, parent, index);
     DockNode split;
     split.kind = DockNode::Kind::Split;
     split.axis = axis;
@@ -381,13 +402,91 @@ bool EditorDock::SplitTab(EditorPanelId panel, EditorPanelId target, DockAxis ax
     }
     if (!hasParent)
     {
-        root_ = std::move(split);
+        targetRoot = std::move(split);
     }
     else
     {
         parent->children[index] = std::move(split);
     }
+    Normalize();
     return true;
+}
+
+DockNode* EditorDock::FindMutable(EditorPanelId panel)
+{
+    if(auto* found=FindNode(root_,panel))return found;
+    for(auto& window:windows_)if(auto* found=FindNode(window.layout,panel))return found;
+    return nullptr;
+}
+void EditorDock::Normalize()
+{
+    CollapseEmptyGroups(root_);
+    for(auto& window:windows_)CollapseEmptyGroups(window.layout);
+    std::erase_if(windows_,[](const auto& w){return w.layout.kind==DockNode::Kind::Tabs&&w.layout.tabs.empty();});
+}
+DockNode* EditorDock::Surface(std::uint32_t id) noexcept
+{
+    if(!id)return &root_;
+    for(auto& window:windows_)if(window.id==id)return &window.layout;
+    return nullptr;
+}
+const DockNode* EditorDock::Surface(std::uint32_t id)const noexcept
+{return const_cast<EditorDock*>(this)->Surface(id);}
+std::uint32_t EditorDock::SurfaceFor(EditorPanelId panel)const noexcept
+{
+    for(const auto& window:windows_)
+        if(FindNode(const_cast<DockNode&>(window.layout),panel))return window.id;
+    return 0;
+}
+std::uint32_t EditorDock::FloatTab(EditorPanelId panel,int x,int y,int width,int height)
+{
+    if(!Find(panel))return 0;
+    const std::uint32_t id=nextWindowId_;
+    if(!id||id>1000000||windows_.size()>=32)return 0;
+    if(!CloseTab(panel))return 0;
+    windows_.push_back({id,std::clamp(x,-1000000,1000000),std::clamp(y,-1000000,1000000),std::clamp(width,240,8192),std::clamp(height,160,8192),MakeTabs({panel})});
+    ++nextWindowId_;
+    return id;
+}
+bool EditorDock::SetWindowBounds(std::uint32_t id,int x,int y,int width,int height)
+{
+    for(auto& w:windows_)if(w.id==id)
+    {w.x=std::clamp(x,-1000000,1000000);w.y=std::clamp(y,-1000000,1000000);w.width=std::clamp(width,240,8192);w.height=std::clamp(height,160,8192);return true;}
+    return false;
+}
+bool EditorDock::CloseWindow(std::uint32_t id)
+{
+    const auto size=windows_.size();std::erase_if(windows_,[id](const auto& w){return w.id==id;});
+    return size!=windows_.size();
+}
+bool EditorDock::RestoreWindows(std::vector<FloatingDockWindow> windows)
+{
+    if(windows.size()>32)return false;
+    std::vector<std::uint32_t> ids;
+    std::vector<EditorPanelId> panels;
+    const auto collect=[&](const auto& self,const DockNode& node)->bool {
+        for(const auto p:node.tabs)
+        {if(p==EditorPanelId::None||std::find(panels.begin(),panels.end(),p)!=panels.end())return false;panels.push_back(p);}
+        for(const auto& child:node.children)if(!self(self,child))return false;
+        return true;
+    };
+    if(!collect(collect,root_))return false;
+    for(const auto& w:windows)
+    {
+        if(!w.id||w.id>1000000||std::find(ids.begin(),ids.end(),w.id)!=ids.end()||!collect(collect,w.layout))return false;
+        if(w.width<240||w.height<160||w.width>8192||w.height>8192)return false;
+        if(w.x<-1000000||w.x>1000000||w.y<-1000000||w.y>1000000)return false;
+        ids.push_back(w.id);
+    }
+    windows_=std::move(windows);Normalize();nextWindowId_=1;
+    for(const auto& window:windows_)nextWindowId_=std::max(nextWindowId_,window.id+1);
+    return true;
+}
+bool EditorDock::SetSplitRatio(std::uint32_t surface,const std::vector<std::size_t>& path,float ratio)
+{
+    auto* root=Surface(surface);if(!root||!std::isfinite(ratio))return false;
+    auto* node=NodeAt(*root,path);if(!node||node->kind!=DockNode::Kind::Split)return false;
+    node->ratio=std::clamp(ratio,0.0f,1.0f);return true;
 }
 
 bool EditorDock::SetRootRatio(float ratio)
