@@ -18,7 +18,9 @@
 #include "PlatformLayer/Windows/UiDirectWriteTextService.h"
 #include "EditorSessionStore.h"
 #include "EditorSession.h"
+#if defined(FLARE_LOCAL_VALIDATION)
 #include "EditorSmokeDriver.h"
+#endif
 #include "ToolLayer/Tools/Project.h"
 #include <Windows.h>
 #include <commdlg.h>
@@ -221,7 +223,9 @@ int RunEditorApp(Renderer& renderer,const std::string& locale,const std::filesys
     try
     {
         const auto root=std::filesystem::weakly_canonical(requestedRoot);
+#if defined(FLARE_LOCAL_VALIDATION)
         auto smoke=EditorSmokeDriver::FromEnvironment(root);
+#endif
         const bool toolkit=hooks&&hooks->editorUi=="toolkit";
         std::unique_ptr<EditorShell> toolkitShell;
         std::unique_ptr<EditorInputAdapter> toolkitInput;
@@ -1335,6 +1339,7 @@ int RunEditorApp(Renderer& renderer,const std::string& locale,const std::filesys
                     Log(result.success?LogLevel::Info:LogLevel::Warning,toolkitImportStatus);
                     toolkitShell->FocusPanel(EditorPanelId::Assets);
                 }
+#if defined(FLARE_LOCAL_VALIDATION)
                 if(smoke.Enabled())
                 {
                     // 两套壳共用同一个验收驱动；toolkit 必须执行自己的生产命令总线。
@@ -1361,6 +1366,7 @@ int RunEditorApp(Renderer& renderer,const std::string& locale,const std::filesys
                             EditorCommandOutcome::Failed("Editor.PlaybackInvalidState");
                     },[&]{PostMessageW(hostWindow,WM_CLOSE,0,0);});
                 }
+#endif
                 static bool toolkitExtractLogged=false;
                 if(!toolkitExtractLogged)
                 {
@@ -1683,7 +1689,9 @@ int RunEditorApp(Renderer& renderer,const std::string& locale,const std::filesys
                 view.hasCamera=currentCamera.has_value();view.camera=currentCamera;if(currentCamera)view.viewProjection=currentCamera->viewProjection;
             };
             if(hooks&&hooks->operationFrame)hooks->operationFrame(frontend,session);
+#if defined(FLARE_LOCAL_VALIDATION)
             smoke.OperationFrame(frontend,session);
+#endif
             const auto result=frontend.Draw(session,assets,text,input,viewport,&ui);
             persistSession(false);
             if(frontend.CloseApproved())PostMessageW(hostWindow,WM_CLOSE,0,0);
@@ -1720,10 +1728,20 @@ int RunEditorApp(Renderer& renderer,const std::string& locale,const std::filesys
         if(hooks&&hooks->closing)hooks->closing(session,ui);
         persistSession(true);
         if(toolkit)Log(LogLevel::Info,"EditorUi.ToolkitPersisted");
-        if(toolkit)return smoke.FinalResult(result);
+        if(toolkit){
+#if defined(FLARE_LOCAL_VALIDATION)
+            return smoke.FinalResult(result);
+#else
+            return result;
+#endif
+        }
         frontend.FinishRecovery(result==0&&frontend.CloseApproved());
         if(result==0&&frontend.CloseApproved()&&!frontend.PublishRestartRequest())return 1;
+#if defined(FLARE_LOCAL_VALIDATION)
         return smoke.FinalResult(result);
+#else
+        return result;
+#endif
     }
     catch(const std::exception& exception)
     {Log(LogLevel::Error,std::string("EditorUi.StartFailed: ")+exception.what());return 1;}

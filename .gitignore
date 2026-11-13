@@ -1,4 +1,4 @@
-﻿# Generated build output
+# Generated build output
 /out/
 /build/
 /Build/
@@ -48,3 +48,41 @@ CMakeUserPresets.json
 !/README.md
 !/开发者文档.md
 !/使用者文档.md
+
+# 本地测试、检查、演示和实验保留在磁盘，不发布到 GitHub。
+/Tests/
+/Samples/
+/Resources/Samples/
+/output/
+/Source/ToolLayer/Editor/EditorSmokeDriver.cpp
+/Source/ToolLayer/Editor/EditorSmokeDriver.h
+/Source/PlatformLayer/Graphics/D3D12/D3D12Diagnostics.cpp
+/Source/ToolLayer/Tools/*
+!/Source/ToolLayer/Tools/EnvironmentCooker.cpp
+!/Source/ToolLayer/Tools/Project.cpp
+!/Source/ToolLayer/Tools/Project.h
+!/Source/ToolLayer/Tools/ProjectTool.cpp
+!/Source/ToolLayer/Tools/SelfEngineEditor.cpp
+!/Source/ToolLayer/Tools/ShaderBuilder.cpp
+/Scripts/*
+!/Scripts/Build-EditorPackage.ps1
+!/Scripts/Build-EditorScriptCandidate.ps1
+!/Scripts/Copy-RendererResources.ps1
+!/Scripts/DetectMsvcIncludes.cmake
+!/Scripts/EditorPackageRuntime.ps1
+!/Scripts/Export-Game.ps1
+!/Scripts/Export-Package.ps1
+!/Scripts/Generate-FlareBranding.ps1
+!/Scripts/Import-MsvcEnvironment.ps1
+!/Scripts/MsvcOutputEncoding.cpp
+!/Scripts/NativeProgram.ps1
+!/Scripts/ProjectBuildLease.ps1
+!/Scripts/Publish-Managed.ps1
+!/Scripts/Run-ProjectPreview.ps1
+!/Scripts/SourceIdentity.ps1
+!/Scripts/Start-Editor.ps1
+!/Scripts/Start-ExportedGame.ps1
+
+/Resources/Examples/Scenes/Basic.scene.json
+/Resources/Examples/Scenes/MissingResource.scene.json
+/Source/FunctionLayer/Rendering/RenderExperiment.h

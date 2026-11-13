@@ -1,4 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup><OutputType>Exe</OutputType><AssemblyName>SelfEngine.SystemBenchmark</AssemblyName></PropertyGroup>
-  <ItemGroup><ProjectReference Include="$(SelfEngineRepositoryRoot)Source/FunctionLayer/Scripting/Managed/Engine.Managed.csproj" /></ItemGroup>
-</Project>

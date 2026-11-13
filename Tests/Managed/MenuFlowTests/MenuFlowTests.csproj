@@ -1,7 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup><OutputType>Exe</OutputType><AssemblyName>SelfEngine.MenuFlowTests</AssemblyName></PropertyGroup>
-  <ItemGroup>
-    <ProjectReference Include="$(SelfEngineRepositoryRoot)Source/FunctionLayer/Scripting/Managed/Engine.Managed.csproj" />
-    <ProjectReference Include="$(SelfEngineRepositoryRoot)Samples/Managed/ProjectScripts/ProjectScripts.csproj" />
-  </ItemGroup>
-</Project>

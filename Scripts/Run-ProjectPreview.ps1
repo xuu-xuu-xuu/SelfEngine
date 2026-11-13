@@ -1,4 +1,4 @@
-﻿param(
+param(
     [Parameter(Mandatory=$true)][string]$ProjectRoot,
     [Parameter(Mandatory=$true)][string]$ScriptsProject,
     [Parameter(Mandatory=$true)][string]$Scene,
@@ -40,7 +40,7 @@ try {
     $report=[ordered]@{schema=1;success=$false;phase='restore_bootstrap';project_root=$ProjectRoot;configuration=$Configuration;mode=$Mode;script_project=$project;scene=$sceneFile;bindings=$bindingsFile;process_id=$null;exit_code=$null}
     WriteReport
     $dotnet=(Get-Command dotnet.exe -ErrorAction Stop).Source
-    $bootstrapProject=Join-Path $repository 'Samples/Managed/Bootstrap/Bootstrap.csproj'
+    $bootstrapProject=Join-Path $repository 'Source/FunctionLayer/Scripting/Bootstrap/Bootstrap.csproj'
     $restoreArguments=@('restore',$bootstrapProject,'--configfile',(Join-Path $repository 'NuGet.Config'),'--packages',(Join-Path $repository 'out/nuget/packages'),('-p:Configuration='+$Configuration),'--nologo')
     if((Invoke-EngineProgram $dotnet $restoreArguments (Join-Path $case 'bootstrap-restore.log')) -ne 0){throw (Text 'Preview.RestoreFailed')}
     $report.phase='compile_bootstrap';WriteReport

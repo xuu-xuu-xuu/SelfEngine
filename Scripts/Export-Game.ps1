@@ -109,7 +109,7 @@ try {
     $report.phase='content_validation';$report.project=$manifest;$report.name=$Name;$report.staging=$stage;$report.output=$final;$report.output_root=[IO.Path]::GetFullPath($packages);Report
     $source=if($packageMode){Read-EngineEditorPackage $workspace}else{Get-EngineSourceIdentity $workspace};Write-EngineJson (Join-Path $case 'source-inputs.json') $source
     $native=if($packageMode){Join-Path $workspace 'Tools'}else{Join-Path $workspace 'out/build/windows-x64-release'}
-    $nativeFiles=if($packageMode){@('ProjectTool.exe')}else{@('ProjectTool.exe','EditorSandbox.exe','ControlsSandbox.exe','EngineSandbox.exe','EngineNative.dll')}
+    $nativeFiles=if($packageMode){@('ProjectTool.exe')}else{@('ProjectTool.exe','EngineNative.dll')}
     foreach($file in $nativeFiles){if(!(Test-Path -LiteralPath (Join-Path $native $file))){Fail 'Export.NativeMissing' $file}}
     $dependencyFile=Join-Path $case 'dependencies.json';Step 'content_validation' (Join-Path $native 'ProjectTool.exe') @('dependencies',$manifest,$dependencyFile)
     $powershell=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
@@ -118,7 +118,7 @@ try {
     else{$report.phase='publish_runtime';$report.steps+=@([ordered]@{phase='publish_runtime';exit_code=0;input='Player';mode='prebuilt'});Report}
     New-Item -ItemType Directory -Path $stage | Out-Null
     Get-ChildItem -LiteralPath $runtimeOutput | Copy-Item -Destination $stage -Recurse -Force
-    foreach($file in $(if($packageMode){@('ProjectTool.exe')}else{@('ProjectTool.exe','EditorSandbox.exe','ControlsSandbox.exe','EngineSandbox.exe')})){Copy-Item -LiteralPath (Join-Path $native $file) -Destination $stage}
+    foreach($file in $(if($packageMode){@('ProjectTool.exe')}else{@('ProjectTool.exe')})){Copy-Item -LiteralPath (Join-Path $native $file) -Destination $stage}
     $scriptAssembly='ProjectScripts/SelfEngine.ProjectScripts.dll';$scriptBindings=''
     if($customScripts){
         $scriptInputs=@(Get-EngineScriptInputs $ScriptProject)

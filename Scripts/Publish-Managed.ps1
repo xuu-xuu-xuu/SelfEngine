@@ -22,9 +22,9 @@ if($ManagedOutputRoot){
     New-Item -ItemType Directory -Path $managedRoot -Force | Out-Null
     $baseArgs=@("-p:SelfEngineManagedOutputRoot=$managedRoot/","-p:SelfEngineManagedIntermediateRoot=$managedRoot/obj/")
 }
-dotnet restore Samples/Managed/Bootstrap/Bootstrap.csproj --runtime win-x64 --configfile NuGet.Config --packages out/nuget/packages "-p:Configuration=$Configuration" "-p:SelfContained=$selfContained" @baseArgs --nologo
+dotnet restore Source/FunctionLayer/Scripting/Bootstrap/Bootstrap.csproj --runtime win-x64 --configfile NuGet.Config --packages out/nuget/packages "-p:Configuration=$Configuration" "-p:SelfContained=$selfContained" @baseArgs --nologo
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-dotnet publish Samples/Managed/Bootstrap/Bootstrap.csproj --configuration $Configuration --runtime win-x64 --self-contained $selfContained --output $publishDirectory -p:PublishSingleFile=false -p:PublishTrimmed=false @baseArgs --no-restore --nologo
+dotnet publish Source/FunctionLayer/Scripting/Bootstrap/Bootstrap.csproj --configuration $Configuration --runtime win-x64 --self-contained $selfContained --output $publishDirectory -p:PublishSingleFile=false -p:PublishTrimmed=false @baseArgs --no-restore --nologo
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 Copy-Item -LiteralPath $nativeLibrary -Destination (Join-Path $publishDirectory 'EngineNative.dll') -Force
 if (-not $FrameworkDependent) {
@@ -43,5 +43,5 @@ $resourceDestination = Join-Path $publishDirectory 'Resources'
 New-Item -ItemType Directory -Path $resourceDestination -Force | Out-Null
 Copy-Item -LiteralPath $localization -Destination $resourceDestination -Recurse -Force
 Copy-EngineRendererResources -NativeDirectory $nativeDirectory -Destination $resourceDestination
-& (Join-Path $publishDirectory 'SelfEngine.Bootstrap.exe')
-exit $LASTEXITCODE
+Write-Output $publishDirectory
+exit 0

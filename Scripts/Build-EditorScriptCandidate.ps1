@@ -1,4 +1,4 @@
-﻿param(
+param(
     [Parameter(Mandatory=$true)][string]$ProjectRoot,
     [Parameter(Mandatory=$true)][string]$NativeDirectory,
     [Parameter(Mandatory=$true)][string]$OperationDirectory,
@@ -120,7 +120,7 @@ try {
     $engineInputs=@([ordered]@{path='EngineNative.dll';sha256=(Get-FileHash -LiteralPath $native -Algorithm SHA256).Hash.ToLowerInvariant()})
     if($packageMode){$package=Read-EngineEditorPackage $engineRoot;$engineInputs+=@([ordered]@{path='editor-package.json';sha256=$package.editor_package_sha256})}
     else {
-        foreach($directory in @('Samples/Managed/Bootstrap','Source/FunctionLayer/Scripting/Managed')){
+        foreach($directory in @('Source/FunctionLayer/Scripting/Bootstrap','Source/FunctionLayer/Scripting/Managed')){
             $engineInputs+=@(Get-ChildItem -LiteralPath (Join-Path $engineRoot $directory) -File -Recurse | Where-Object {$_.Extension -in @('.cs','.csproj')} | Sort-Object FullName | ForEach-Object {[ordered]@{path=$_.FullName.Substring($engineRoot.Length+1).Replace('\','/');sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()}})
         }
         foreach($name in @('Directory.Build.props','Directory.Build.targets','global.json','Scripts/Build-EditorScriptCandidate.ps1')){$engineInputs+=@([ordered]@{path=$name;sha256=(Get-FileHash -LiteralPath (Join-Path $engineRoot $name) -Algorithm SHA256).Hash.ToLowerInvariant()})}
@@ -158,7 +158,7 @@ try {
         $escapedOutput=[Security.SecurityElement]::Escape((Join-Path $OperationDirectory 'managed'))
         $text='<Project><Import Project="'+$escapedRoot+'\Directory.Build.props"/><PropertyGroup><BaseOutputPath>'+$escapedOutput+'\bin\$(MSBuildProjectName)\</BaseOutputPath><BaseIntermediateOutputPath>'+$escapedOutput+'\obj\$(MSBuildProjectName)\</BaseIntermediateOutputPath></PropertyGroup></Project>'
         [IO.File]::WriteAllText($props,$text,$utf8)
-        $bootstrap=Join-Path $engineRoot 'Samples/Managed/Bootstrap/Bootstrap.csproj'
+        $bootstrap=Join-Path $engineRoot 'Source/FunctionLayer/Scripting/Bootstrap/Bootstrap.csproj'
         $properties=@(('-p:Configuration='+$Configuration),('-p:DirectoryBuildPropsPath='+$props),'-p:UseSharedCompilation=false','-nodeReuse:false')
         $failureKey='Preview.RestoreFailed'
         Step 'restore_host' $dotnet (@('restore',$bootstrap,'--runtime','win-x64','-p:SelfContained=true','--configfile',(Join-Path $engineRoot 'NuGet.Config'),'--packages',(Join-Path $engineRoot 'out/nuget/packages'),'--nologo')+$properties)

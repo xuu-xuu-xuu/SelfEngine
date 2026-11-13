@@ -5,7 +5,9 @@
 #include "EditorSession.h"
 #include "ImGuiEditor.h"
 #include "EditorProcessRunner.h"
+#if defined(FLARE_LOCAL_VALIDATION)
 #include "EditorSmokeDriver.h"
+#endif
 #include "CoreLayer/Hash.h"
 #include "CoreLayer/Localization.h"
 #include "CoreLayer/Log.h"
@@ -139,8 +141,13 @@ int RunNativeEditorWorker(const EditorWorkerOptions& options);
 int RunManagedEditorWorker(const EditorWorkerOptions& options,const fs::path& engineRoot,const fs::path& userDirectory,EditorLoadingScreen& loading)
 {
     std::size_t workflowStages=0,workflowStage=0;std::string workflowError;
+#if defined(FLARE_LOCAL_VALIDATION)
     const bool workflow=!options.smokeWorkflow.empty();
     if(workflow&&!EditorSmokeDriver::ValidateWorkflow(options.projectRoot,options.smokeWorkflow,workflowStages,workflowError))return 2;
+#else
+    const bool workflow=!options.smokeWorkflow.empty();
+    if(workflow)return 2;
+#endif
     Json workflowReport{{"schemaVersion",1},{"success",false},{"supervisor_process_id",GetCurrentProcessId()},
         {"stages",Json::array()},{"manual_input_verified",false},{"initial_resources",SupervisorResources()}};
     const bool packaged=fs::is_regular_file(engineRoot/"editor-package.json");
@@ -314,6 +321,7 @@ int RunEditorWorker(const EditorWorkerOptions& options)
 {
     SetConsoleOutputCP(CP_UTF8);
     const auto supervisorStarted=GetTickCount64();
+#if defined(FLARE_LOCAL_VALIDATION)
     if(!options.smokeWorkflow.empty())
     {
         std::size_t stages=0;std::string error;
@@ -322,6 +330,9 @@ int RunEditorWorker(const EditorWorkerOptions& options)
         const auto build=ReadJson(options.projectRoot/"build.json");
         if(!build.is_object()||!build.contains("scriptsProject")||!build["scriptsProject"].is_string()||build["scriptsProject"].get<std::string>().empty())return 2;
     }
+#else
+    if(!options.smokeWorkflow.empty())return 2;
+#endif
     // 监督进程持续持有唯一项目租约；编译和实际编辑子进程绝不交叠。
     const auto engineRoot=ProjectWorkspaceSession::EngineRootFromExecutable();
     const auto userDirectory=ProjectWorkspaceSession::UserDataDirectory(engineRoot);

@@ -1,9 +1,0 @@
-{
-  "format": "SelfEngine.Scene",
-  "version": 1,
-  "entities": [
-    {"id":"1","name":"Camera","enabled":true,"parent":null,"transform":{"position":[0,0,3],"rotation":[0,0,0,1],"scale":[1,1,1]},"components":{"camera":{"fov":1.0471976,"near":0.1,"far":100,"primary":true}}},
-    {"id":"2","name":"ValidCube","enabled":true,"parent":null,"transform":{"position":[-0.5,0,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"components":{"mesh":{"asset":"00000000000000000000000000000001","materials":[]}}},
-    {"id":"3","name":"MissingModel","enabled":true,"parent":null,"transform":{"position":[0.7,0,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"components":{"mesh":{"asset":"ffffffffffffffffffffffffffffffff","materials":[]}}}
-  ]
-}

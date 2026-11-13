@@ -1,4 +1,4 @@
-﻿function Write-EngineJson([string]$Path,$Value){[IO.File]::WriteAllText($Path,($Value|ConvertTo-Json -Depth 24)+"`n",[Text.UTF8Encoding]::new($false))}
+function Write-EngineJson([string]$Path,$Value){[IO.File]::WriteAllText($Path,($Value|ConvertTo-Json -Depth 24)+"`n",[Text.UTF8Encoding]::new($false))}
 if($PSVersionTable.PSVersion.Major -le 5){
     # 从 PowerShell 7 的 .NET 子进程启动时可能继承其模块路径，显式使用本宿主的 Utility。
     Import-Module (Join-Path $PSHOME 'Modules/Microsoft.PowerShell.Utility/Microsoft.PowerShell.Utility.psd1') -Force -ErrorAction Stop
@@ -6,9 +6,12 @@ if($PSVersionTable.PSVersion.Major -le 5){
 function Get-EngineSourceIdentity([string]$ProjectRoot){
     $ProjectRoot=(Resolve-Path -LiteralPath $ProjectRoot).Path.TrimEnd('\')
     $inputPaths=[Collections.Generic.List[string]]::new()
-    foreach($directory in @('Source','Samples','Resources','Scripts','ThirdParty','Tests')){
-        foreach($file in Get-ChildItem -LiteralPath (Join-Path $ProjectRoot $directory) -File -Recurse){
-            if($file.FullName.Replace('\','/') -notmatch '/(bin|obj|__pycache__|\.cache)/' -and $file.Extension -notin @('.pyc','.pyo','.md')){$inputPaths.Add($file.FullName)}
+    # 仅计算可发布输入，排除本地保留的回归、实验和旧路径原件。
+    $candidates=& git -C $ProjectRoot -c core.quotepath=false ls-files --cached --others --exclude-standard
+    if($LASTEXITCODE -ne 0){throw 'Cannot enumerate engine source inputs.'}
+    foreach($relative in @($candidates | Sort-Object -Unique)){
+        if($relative -match '^(Source|Resources|Scripts|ThirdParty)/' -and $relative -notmatch '/(bin|obj|__pycache__|\.cache)/' -and [IO.Path]::GetExtension($relative) -notin @('.pyc','.pyo','.md')){
+            $inputPaths.Add((Join-Path $ProjectRoot $relative))
         }
     }
     foreach($name in @('CMakeLists.txt','CMakePresets.json','Directory.Build.props','NuGet.Config')){$inputPaths.Add((Join-Path $ProjectRoot $name))}

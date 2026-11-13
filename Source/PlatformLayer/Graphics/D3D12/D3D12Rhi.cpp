@@ -158,7 +158,7 @@ struct Device::Impl
     std::uint64_t occlusionFrames=0,occlusionInstances=0;
     bool EnsureOcclusion(const D3D12MeshPipeline& pipeline,bool forwardInstanced)
     {
-        const auto experiments=GetExecutableDirectory()/"Experiments";
+        const auto experiments=GetExecutableDirectory()/"Resources/Shaders";
         if(!occlusion.kernelsReady)
         {
             if(FAILED(occlusion.indirect.Initialize(context,experiments/"Indirect.hlsl",text))
